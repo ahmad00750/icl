@@ -7,6 +7,17 @@
 (in-package #:icl)
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Foreign Library Configuration
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+;;; Tell CFFI to not save osicat's library path in the image.
+;;; This allows libosicat.so to be found via ldconfig at runtime
+;;; instead of using the absolute build path.
+(let ((lib (cffi:get-foreign-library :libosicat nil)))
+  (when lib
+    (setf (slot-value lib 'cffi::dont-save) t)))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Version
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
