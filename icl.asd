@@ -42,7 +42,8 @@
                   ((:file "registry")
                    (:file "core")))
                  (:file "repl")
-                 (:file "main"))))
+                 (:file "main")
+                 (:file "deploy-config"))))
   :build-operation "deploy-op"
   :build-pathname "icl"
   :entry-point "icl:main")
