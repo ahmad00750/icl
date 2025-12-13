@@ -14,7 +14,7 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          dnf install -y rpm-build rpmdevtools sbcl libfixposix-devel gcc make grep curl jq
+          dnf install -y rpm-build rpmdevtools sbcl libfixposix-devel gcc make grep curl jq redhat-rpm-config
           # Install ocicl from GitHub releases (get latest x86_64 rpm)
           OCICL_RPM_URL=$(curl -sL https://api.github.com/repos/ocicl/ocicl/releases/latest | jq -r '.assets[] | select(.name | endswith("x86_64.rpm")) | .browser_download_url')
           curl -sL "$OCICL_RPM_URL" -o /tmp/ocicl.rpm
