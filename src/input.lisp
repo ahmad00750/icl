@@ -45,7 +45,8 @@
    Returns input string or NIL on EOF."
   (case (select-input-backend)
     (:linedit (read-with-linedit))
-    (:simple (read-simple))))
+    (:simple (read-simple))
+    (otherwise (read-simple))))
 
 (defun read-simple ()
   "Simple fallback input for dumb terminals."
@@ -93,7 +94,7 @@
        (read-with-multiline-editor))
       (:linedit
        (read-with-linedit-continuation))
-      (:simple
+      (otherwise
        (read-with-simple-continuation)))))
 
 (defun read-with-multiline-editor ()
@@ -103,10 +104,10 @@
                  :prompt (make-prompt)
                  :continuation-prompt (make-continuation-prompt))))
     (cond
-      ((eq result :cancel)
+      ((eql result :cancel)
        ;; User hit Ctrl-C, return empty to trigger abort restart
        "")
-      ((eq result :not-a-tty)
+      ((eql result :not-a-tty)
        ;; Not a real terminal, fall back to linedit or simple
        (if (terminal-capable-p)
            (read-with-linedit-continuation)
@@ -118,17 +119,18 @@
 
 (defun read-with-linedit-continuation ()
   "Read using linedit with continuation prompts for incomplete forms."
-  (let ((lines '())
+  (let ((lines nil)
         (cont-prompt nil))
     (loop
-      (let ((line (if lines
-                      (progn
-                        (unless cont-prompt
-                          (setf cont-prompt (make-continuation-prompt)))
-                        (format t "~A" cont-prompt)
-                        (force-output)
-                        (read-line *standard-input* nil nil))
-                      (read-with-linedit))))
+      (let ((line (cond
+                    (lines
+                     (unless cont-prompt
+                       (setf cont-prompt (make-continuation-prompt)))
+                     (format t "~A" cont-prompt)
+                     (force-output)
+                     (read-line *standard-input* nil nil))
+                    (t
+                     (read-with-linedit)))))
         (unless line
           (return (if lines
                       (format nil "~{~A~%~}" (nreverse lines))
@@ -140,17 +142,18 @@
 
 (defun read-with-simple-continuation ()
   "Read using simple input with continuation prompts."
-  (let ((lines '())
+  (let ((lines nil)
         (cont-prompt nil))
     (loop
-      (let ((line (if lines
-                      (progn
-                        (unless cont-prompt
-                          (setf cont-prompt (make-continuation-prompt)))
-                        (format t "~A" cont-prompt)
-                        (force-output)
-                        (read-line *standard-input* nil nil))
-                      (read-simple))))
+      (let ((line (cond
+                    (lines
+                     (unless cont-prompt
+                       (setf cont-prompt (make-continuation-prompt)))
+                     (format t "~A" cont-prompt)
+                     (force-output)
+                     (read-line *standard-input* nil nil))
+                    (t
+                     (read-simple)))))
         (unless line
           (return (if lines
                       (format nil "~{~A~%~}" (nreverse lines))

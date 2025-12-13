@@ -169,19 +169,19 @@
   "Find the program name for Lisp implementation IMPL."
   (let ((entry (assoc impl *lisp-implementations*)))
     (when entry
-      (getf (cdr entry) :program))))
+      (getf (rest entry) :program))))
 
 (defun get-lisp-args (impl)
   "Get command-line arguments for Lisp implementation IMPL."
   (let ((entry (assoc impl *lisp-implementations*)))
     (when entry
-      (getf (cdr entry) :args))))
+      (getf (rest entry) :args))))
 
 (defun get-lisp-eval-arg (impl)
   "Get the eval command-line argument for Lisp implementation IMPL."
   (let ((entry (assoc impl *lisp-implementations*)))
     (when entry
-      (or (getf (cdr entry) :eval-arg) "--eval"))))
+      (or (getf (rest entry) :eval-arg) "--eval"))))
 
 (defun port-in-use-p (port)
   "Check if PORT is already in use (by any service, not just Slynk)."
@@ -222,11 +222,11 @@
     (unless program
       (error "Unknown Lisp implementation: ~A" lisp))
     ;; Check if program exists
-    (unless (probe-file (format nil "/usr/bin/~A" program))
-      (unless (ignore-errors
-                (uiop:run-program (list "which" program)
-                                  :output :string))
-        (error "Cannot find ~A in PATH" program)))
+    (unless (or (probe-file (format nil "/usr/bin/~A" program))
+                (ignore-errors
+                  (uiop:run-program (list "which" program)
+                                    :output :string)))
+      (error "Cannot find ~A in PATH" program))
     ;; Build the Slynk initialization code
     (let* ((init-code (generate-slynk-init actual-port))
            (eval-arg (get-lisp-eval-arg lisp))
@@ -306,63 +306,69 @@
 (defun backend-eval (string)
   "Evaluate STRING using the current backend.
    Returns (values result-values output-string)."
-  (if *use-slynk*
-      (progn
-        (ensure-backend)
-        (slynk-eval-form string))
-      ;; Local evaluation (original behavior)
-      (let ((form (read-form string)))
-        (run-before-eval-hooks form)
-        (let ((values (eval-form form)))
-          (update-history form values)
-          (run-after-eval-hooks form values)
-          (values values nil)))))
+  (cond
+    (*use-slynk*
+     (ensure-backend)
+     (slynk-eval-form string))
+    (t
+     ;; Local evaluation (original behavior)
+     (let ((form (read-form string)))
+       (run-before-eval-hooks form)
+       (let ((values (eval-form form)))
+         (update-history form values)
+         (run-after-eval-hooks form values)
+         (values values nil))))))
 
 (defun backend-complete (prefix package)
   "Get completions for PREFIX in PACKAGE using current backend."
-  (if *use-slynk*
-      (progn
-        (ensure-backend)
-        (slynk-complete-simple prefix :package package))
-      ;; Local completion (use existing completion functions)
-      (complete-symbol prefix (find-package package))))
+  (cond
+    (*use-slynk*
+     (ensure-backend)
+     (slynk-complete-simple prefix :package package))
+    (t
+     ;; Local completion (use existing completion functions)
+     (complete-symbol prefix (find-package package)))))
 
 (defun backend-documentation (name type)
   "Get documentation for NAME of TYPE using current backend."
-  (if *use-slynk*
-      (progn
-        (ensure-backend)
-        (slynk-documentation name type))
-      ;; Local documentation
-      (documentation (find-symbol (string-upcase name) *icl-package*) type)))
+  (cond
+    (*use-slynk*
+     (ensure-backend)
+     (slynk-documentation name type))
+    (t
+     ;; Local documentation
+     (documentation (find-symbol (string-upcase name) *icl-package*) type))))
 
 (defun backend-describe (name)
   "Describe NAME using current backend."
-  (if *use-slynk*
-      (progn
-        (ensure-backend)
-        (slynk-describe name))
-      ;; Local describe - capture output to string
-      (with-output-to-string (*standard-output*)
-        (describe (parse-symbol-arg name)))))
+  (cond
+    (*use-slynk*
+     (ensure-backend)
+     (slynk-describe name))
+    (t
+     ;; Local describe - capture output to string
+     (with-output-to-string (*standard-output*)
+       (describe (parse-symbol-arg name))))))
 
 (defun backend-apropos (pattern)
   "Search for symbols matching PATTERN using current backend."
-  (if *use-slynk*
-      (progn
-        (ensure-backend)
-        (slynk-apropos pattern))
-      ;; Local apropos
-      (apropos-list pattern)))
+  (cond
+    (*use-slynk*
+     (ensure-backend)
+     (slynk-apropos pattern))
+    (t
+     ;; Local apropos
+     (apropos-list pattern))))
 
 (defun backend-set-package (package-name)
   "Change current package using current backend."
-  (if *use-slynk*
-      (progn
-        (ensure-backend)
-        (slynk-set-package package-name))
-      ;; Local package change
-      (let ((pkg (find-package (string-upcase package-name))))
-        (when pkg
-          (setf *icl-package* pkg)
-          pkg))))
+  (cond
+    (*use-slynk*
+     (ensure-backend)
+     (slynk-set-package package-name))
+    (t
+     ;; Local package change
+     (let ((pkg (find-package (string-upcase package-name))))
+       (when pkg
+         (setf *icl-package* pkg)
+         pkg)))))

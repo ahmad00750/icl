@@ -19,21 +19,22 @@
 (defun show-command-help (name)
   "Show detailed help for a specific command."
   (let ((cmd (find-command name)))
-    (if cmd
-        (progn
-          (format t "~&,~A" (string-downcase (symbol-name (command-name cmd))))
-          (when (command-aliases cmd)
-            (format t " (aliases: ~{,~A~^, ~})"
-                    (mapcar (lambda (a) (string-downcase (symbol-name a)))
-                            (command-aliases cmd))))
-          (format t "~%")
-          (when (command-argspec cmd)
-            (format t "  Arguments: ~{~A~^ ~}~%"
-                    (mapcar #'string-downcase
-                            (mapcar #'symbol-name (command-argspec cmd)))))
-          (when (command-documentation cmd)
-            (format t "  ~A~%" (command-documentation cmd))))
-        (format *error-output* "~&Unknown command: ~A~%" name))))
+    (cond
+      (cmd
+       (format t "~&,~A" (string-downcase (symbol-name (command-name cmd))))
+       (when (command-aliases cmd)
+         (format t " (aliases: ~{,~A~^, ~})"
+                 (mapcar (lambda (a) (string-downcase (symbol-name a)))
+                         (command-aliases cmd))))
+       (format t "~%")
+       (when (command-argspec cmd)
+         (format t "  Arguments: ~{~A~^ ~}~%"
+                 (mapcar #'string-downcase
+                         (mapcar #'symbol-name (command-argspec cmd)))))
+       (when (command-documentation cmd)
+         (format t "  ~A~%" (command-documentation cmd))))
+      (t
+       (format *error-output* "~&Unknown command: ~A~%" name)))))
 
 (defun list-all-commands ()
   "List all available commands with brief descriptions."

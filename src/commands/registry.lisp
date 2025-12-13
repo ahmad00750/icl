@@ -72,7 +72,7 @@ First string in BODY is documentation."
 (defun list-commands ()
   "Return a list of all unique registered commands."
   (let ((seen (make-hash-table :test 'eq))
-        (commands '()))
+        (commands nil))
     (maphash (lambda (k v)
                (declare (ignore k))
                (unless (gethash v seen)
@@ -88,7 +88,7 @@ First string in BODY is documentation."
 (defun split-command-line (line)
   "Split command line into tokens, respecting quoted strings.
    Returns list of strings."
-  (let ((tokens '())
+  (let ((tokens nil)
         (current (make-string-output-stream))
         (in-quote nil)
         (escape nil))

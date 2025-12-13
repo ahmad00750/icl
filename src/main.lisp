@@ -52,7 +52,7 @@
    :string
    :long-name "lisp"
    :key :lisp
-   :description "Lisp implementation to use (sbcl, ccl, ecl, clisp, abcl, clasp). If not specified, auto-detects first available."))
+   :description "Lisp implementation (sbcl, ccl, ecl, clisp, abcl, clasp)"))
 
 (defun make-connect-option ()
   "Create --connect option to connect to an existing Slynk server."
@@ -107,19 +107,19 @@
       ;; Default: auto-detect available Lisp implementation
       (t
        (let ((impl (find-available-lisp)))
-         (if impl
-             (progn
-               (setf *use-slynk* t)
-               (setf *default-lisp* impl)
-               (handler-case
-                   (start-inferior-lisp :lisp impl)
-                 (error (e)
-                   (format *error-output* "~&Failed to start ~A: ~A~%" impl e)
-                   (uiop:quit 1))))
-             (progn
-               (format *error-output* "~&No Lisp implementation found in PATH.~%")
-               (format *error-output* "~&Checked: ~{~A~^, ~}~%" *lisp-implementation-order*)
-               (uiop:quit 1))))))
+         (cond
+           (impl
+            (setf *use-slynk* t)
+            (setf *default-lisp* impl)
+            (handler-case
+                (start-inferior-lisp :lisp impl)
+              (error (e)
+                (format *error-output* "~&Failed to start ~A: ~A~%" impl e)
+                (uiop:quit 1))))
+           (t
+            (format *error-output* "~&No Lisp implementation found in PATH.~%")
+            (format *error-output* "~&Checked: ~{~A~^, ~}~%" *lisp-implementation-order*)
+            (uiop:quit 1))))))
     ;; Load file if specified
     (when load-file
       (handler-case

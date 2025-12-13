@@ -182,7 +182,7 @@
 
 (defun buffer-contents-up-to (buf row col)
   "Return buffer contents up to (but not including) position ROW, COL."
-  (let ((result '()))
+  (let ((result nil))
     ;; Add complete lines before current row
     (dotimes (i row)
       (push (buffer-line buf i) result)

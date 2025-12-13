@@ -10,7 +10,7 @@
 ;;; Editor State
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defvar *editor-history* '()
+(defvar *editor-history* nil
   "List of previous inputs for history navigation.")
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
@@ -24,7 +24,7 @@
         (with-open-file (in *history-file* :direction :input
                                            :if-does-not-exist nil)
           (when in
-            (let ((entries '()))
+            (let ((entries nil))
               (loop for line = (read-line in nil nil)
                     while line
                     ;; Decode the entry (restore newlines)
@@ -76,15 +76,15 @@
     (let ((i 0)
           (len (length line)))
       (loop while (< i len)
-            do (if (and (< (1+ i) len)
-                        (char= (char line i) #\\)
-                        (char= (char line (1+ i)) #\n))
-                   (progn
-                     (write-char #\Newline out)
-                     (incf i 2))
-                   (progn
-                     (write-char (char line i) out)
-                     (incf i)))))))
+            do (cond
+                 ((and (< (1+ i) len)
+                       (char= (char line i) #\\)
+                       (char= (char line (1+ i)) #\n))
+                  (write-char #\Newline out)
+                  (incf i 2))
+                 (t
+                  (write-char (char line i) out)
+                  (incf i)))))))
 
 (defvar *history-index* nil
   "Current position in history during navigation.")
@@ -200,7 +200,7 @@
 
 (defun split-string-by-newline (string)
   "Split STRING by newlines, returning a list of strings."
-  (let ((lines '())
+  (let ((lines nil)
         (start 0))
     (loop for i from 0 below (length string)
           when (char= (char string i) #\Newline)
@@ -271,15 +271,15 @@
    Returns :menu-nav, :menu-closed, or nil to pass through."
   (cond
     ;; Down arrow - next item
-    ((eq key :down)
+    ((eql key :down)
      (menu-select-next)
      :menu-nav)
     ;; Up arrow - previous item
-    ((eq key :up)
+    ((eql key :up)
      (menu-select-previous)
      :menu-nav)
     ;; Enter - accept selection
-    ((eq key :enter)
+    ((eql key :enter)
      (let* ((col (edit-buffer-col buf))
             (line (buffer-current-line buf)))
        (multiple-value-bind (new-line new-col)
@@ -290,7 +290,7 @@
      (close-completion-menu)
      :menu-closed)
     ;; Tab - also accept selection
-    ((eq key :tab)
+    ((eql key :tab)
      (let* ((col (edit-buffer-col buf))
             (line (buffer-current-line buf)))
        (multiple-value-bind (new-line new-col)
@@ -301,7 +301,7 @@
      (close-completion-menu)
      :menu-closed)
     ;; Escape - cancel
-    ((eq key :escape)
+    ((eql key :escape)
      (close-completion-menu)
      :menu-closed)
     ;; Any other key - close menu, clear display, and let key be processed
@@ -319,15 +319,15 @@
   "Handle KEY input, updating BUF. Returns :done, :cancel, :continue, or :redraw."
   (cond
     ;; EOF
-    ((eq key :eof)
+    ((eql key :eof)
      (if (buffer-empty-p buf)
          :eof
          :continue))
     ;; Interrupt
-    ((eq key :interrupt)
+    ((eql key :interrupt)
      :cancel)
     ;; Enter - check if form is complete
-    ((eq key :enter)
+    ((eql key :enter)
      (let ((contents (buffer-contents buf)))
        (if (form-complete-p contents)
            :done
@@ -335,13 +335,13 @@
              (buffer-insert-newline buf)
              :newline))))  ; Special case - just need to show new line
     ;; Navigation
-    ((eq key :left)
+    ((eql key :left)
      (buffer-move-left buf)
      :continue)
-    ((eq key :right)
+    ((eql key :right)
      (buffer-move-right buf)
      :continue)
-    ((eq key :up)
+    ((eql key :up)
      (if (zerop (edit-buffer-row buf))
          ;; At first line - try history
          (when (history-previous buf)
@@ -349,7 +349,7 @@
          (progn
            (buffer-move-up buf)
            :redraw)))
-    ((eq key :down)
+    ((eql key :down)
      (if (= (edit-buffer-row buf) (1- (buffer-line-count buf)))
          ;; At last line - try history forward
          (when (history-next buf)
@@ -357,36 +357,36 @@
          (progn
            (buffer-move-down buf)
            :redraw)))
-    ((eq key :home)
+    ((eql key :home)
      (buffer-move-to-line-start buf)
      :continue)
-    ((eq key :end)
+    ((eql key :end)
      (buffer-move-to-line-end buf)
      :continue)
     ;; Deletion
-    ((eq key :backspace)
+    ((eql key :backspace)
      (if (buffer-delete-char-before buf)
          :redraw
          :continue))
-    ((eq key :delete)
+    ((eql key :delete)
      (if (buffer-delete-char-at buf)
          :redraw
          :continue))
-    ((eq key :kill-line)
+    ((eql key :kill-line)
      (buffer-kill-line buf)
      :redraw)
-    ((eq key :clear-line)
+    ((eql key :clear-line)
      (buffer-clear-line buf)
      :redraw)
-    ((eq key :clear-screen)
+    ((eql key :clear-screen)
      (clear-screen-full)
      (cursor-position 1 1)
      :redraw)
     ;; Tab - completion
-    ((eq key :tab)
+    ((eql key :tab)
      (handle-completion-tab buf))
     ;; Alt+Q - reformat/reindent
-    ((and (consp key) (eq (car key) :alt) (char-equal (cdr key) #\q))
+    ((and (consp key) (eql (first key) :alt) (char-equal (rest key) #\q))
      (buffer-reindent buf)
      :redraw)
     ;; Regular character
@@ -429,7 +429,7 @@
                                      (handle-menu-key buf key)))
                       ;; Handle key normally if menu didn't consume it
                       ;; For :menu-dismissed, process the key then force redraw
-                      (dismissed (eq menu-result :menu-dismissed))
+                      (dismissed (eql menu-result :menu-dismissed))
                       (result (cond
                                 (dismissed
                                  ;; Menu was dismissed by this key - process key and force redraw
@@ -440,19 +440,19 @@
                  ;; Handle result
                  (cond
                    ;; Menu navigation - redraw line and menu
-                   ((eq result :menu-nav)
+                   ((eql result :menu-nav)
                     (render-current-line buf)
                     (render-completion-menu prompt-len (edit-buffer-col buf)))
                    ;; Menu opened - render line and show menu
-                   ((eq result :menu-opened)
+                   ((eql result :menu-opened)
                     (render-current-line buf)
                     (render-completion-menu prompt-len (edit-buffer-col buf)))
                    ;; Menu closed - clear menu area and redraw
-                   ((eq result :menu-closed)
+                   ((eql result :menu-closed)
                     (clear-completion-menu 12)
                     (render-buffer buf))
                    ;; Standard cases
-                   ((eq result :done)
+                   ((eql result :done)
                     ;; Close menu if open
                     (when (completion-menu-active-p)
                       (clear-completion-menu 12)
@@ -465,24 +465,24 @@
                     (let ((contents (buffer-contents buf)))
                       (history-add contents)
                       (return contents)))
-                   ((eq result :eof)
+                   ((eql result :eof)
                     (when (completion-menu-active-p)
                       (clear-completion-menu 12))
                     (format t "~%")
                     (force-output)
                     (return :eof))
-                   ((eq result :cancel)
+                   ((eql result :cancel)
                     (when (completion-menu-active-p)
                       (clear-completion-menu 12))
                     (format t "~%")
                     (force-output)
                     (return :cancel))
-                   ((eq result :redraw)
+                   ((eql result :redraw)
                     (render-buffer buf)
                     ;; Re-render menu if still active
                     (when (completion-menu-active-p)
                       (render-completion-menu prompt-len (edit-buffer-col buf))))
-                   ((eq result :newline)
+                   ((eql result :newline)
                     ;; Close menu on newline
                     (when (completion-menu-active-p)
                       (clear-completion-menu 12)
@@ -491,7 +491,7 @@
                     (format t "~%~A" (edit-buffer-continuation-prompt buf))
                     (force-output)
                     (setf *screen-row* (edit-buffer-row buf)))
-                   ((eq result :continue)
+                   ((eql result :continue)
                     (render-current-line buf)
                     ;; Re-render menu if still active
                     (when (completion-menu-active-p)

@@ -103,7 +103,10 @@
                          result)))
               ((listp result)
                ;; Structured result
-               (print-values result))))
+               (print-values result))
+              (t
+               ;; Unexpected result type - print as-is
+               (format t "~&~A~S~%" (colorize *result-prefix* *color-prefix*) result))))
           ;; Local evaluation (original behavior)
           (multiple-value-bind (values form)
               (eval-input input)

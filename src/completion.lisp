@@ -157,7 +157,7 @@
 (defun complete-symbol (prefix &optional (package *icl-package*))
   "Return list of symbols in PACKAGE matching PREFIX."
   (let ((upprefix (string-upcase prefix))
-        (results '()))
+        (results nil))
     ;; Accessible symbols (external from used packages + internal)
     (do-symbols (sym package)
       (when (prefix-match-p upprefix (symbol-name sym))
@@ -168,7 +168,7 @@
 (defun complete-external-symbol (prefix package)
   "Return list of external symbols in PACKAGE matching PREFIX."
   (let ((upprefix (string-upcase prefix))
-        (results '()))
+        (results nil))
     (do-external-symbols (sym package)
       (when (prefix-match-p upprefix (symbol-name sym))
         (push (string-downcase (symbol-name sym)) results)))
@@ -180,7 +180,7 @@
         (home (symbol-package sym)))
     (cond
       ;; Symbol is in the completion package
-      ((eq home package) (string-downcase name))
+      ((eql home package) (string-downcase name))
       ;; Symbol is external in its home package and accessible
       ((and home (symbol-external-p sym home))
        (string-downcase name))
@@ -191,7 +191,7 @@
   "Return T if SYM is external in PACKAGE."
   (multiple-value-bind (s status) (find-symbol (symbol-name sym) package)
     (declare (ignore s))
-    (eq status :external)))
+    (eql status :external)))
 
 (defun prefix-match-p (prefix string)
   "Return T if PREFIX is a prefix of STRING (case-insensitive)."
@@ -209,7 +209,7 @@
                          (subseq prefix 1)
                          prefix))
          (upprefix (string-upcase key-prefix))
-         (results '()))
+         (results nil))
     (do-symbols (sym (find-package :keyword))
       (when (prefix-match-p upprefix (symbol-name sym))
         (push (format nil ":~A" (string-downcase (symbol-name sym))) results)))
@@ -222,7 +222,7 @@
 (defun complete-package (prefix)
   "Return list of package names matching PREFIX."
   (let ((upprefix (string-upcase prefix))
-        (results '()))
+        (results nil))
     (dolist (pkg (list-all-packages))
       (let ((name (package-name pkg)))
         (when (prefix-match-p upprefix name)
@@ -296,7 +296,7 @@
                        clean-prefix))
          (dir (directory-namestring expanded))
          (name-prefix (file-namestring expanded))
-         (results '()))
+         (results nil))
     (when (or (zerop (length dir))
               (probe-file dir))
       (let ((search-dir (if (zerop (length dir))
@@ -313,7 +313,7 @@
                                           (pathname-type path))
                                   (pathname-name path))
                               ;; Directory
-                              (car (last (pathname-directory path))))))
+                              (first (last (pathname-directory path))))))
                 (when (and name (prefix-match-p (string-upcase name-prefix)
                                                 (string-upcase name)))
                   (let ((full-path (namestring path)))
@@ -445,7 +445,7 @@
              (plusp (length *completion-candidates*)))
     (let* ((len (length *completion-candidates*))
            (new-index (mod (+ *completion-index*
-                              (if (eq direction :next) 1 -1))
+                              (if (eql direction :next) 1 -1))
                            len))
            (completion (nth new-index *completion-candidates*)))
       (setf *completion-index* new-index)

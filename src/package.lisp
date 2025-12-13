@@ -5,6 +5,7 @@
 ;;; Copyright (C) 2025  Anthony Green <green@moxielogic.com>
 
 (defpackage #:icl
+  (:documentation "Interactive Common Lisp - an enhanced REPL for Common Lisp.")
   (:use #:cl)
   (:export
    ;; Main entry points
