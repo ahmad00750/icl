@@ -48,9 +48,6 @@ install -D -m 0755 icl %{buildroot}%{_bindir}/icl
 mkdir -p %{buildroot}%{_datadir}/icl/slynk
 cp -r ocicl/sly-*/slynk/* %{buildroot}%{_datadir}/icl/slynk/
 
-# Install documentation
-install -D -m 0644 README.md %{buildroot}%{_docdir}/%{name}/README.md
-install -D -m 0644 LICENSE %{buildroot}%{_docdir}/%{name}/LICENSE
 # Install collected vendored licenses
 install -D -m 0644 VENDORED-LICENSES.txt %{buildroot}%{_datadir}/licenses/%{name}/VENDORED-LICENSES.txt
 
