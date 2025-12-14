@@ -19,7 +19,6 @@ BuildRequires:  sbcl
 BuildRequires:  libfixposix-devel
 BuildRequires:  gcc
 BuildRequires:  make
-BuildRequires:  ocicl
 
 %description
 icl is an enhanced Common Lisp REPL. It provides a
@@ -30,20 +29,12 @@ helper commands to explore and evaluate Common Lisp code quickly.
 %autosetup
 
 %build
-# Set up ocicl
-ocicl setup > ~/.sbclrc
-
-# Fetch Lisp dependencies (skip if already vendored in source tarball)
-if [ ! -d ocicl ] || [ -z "$(ls -A ocicl 2>/dev/null)" ]; then
-    ocicl install
-fi
-
+# Dependencies are vendored in the source tarball
 # Build the executable
 make
 
 %install
-# Collect licenses from vendored dependencies
-ocicl collect-licenses >VENDORED-LICENSES.txt
+# Use pre-generated third-party licenses (included in source tarball)
 
 # Install the binary
 install -D -m 0755 icl %{buildroot}%{_bindir}/icl
@@ -61,7 +52,7 @@ mkdir -p %{buildroot}%{_datadir}/icl/sly
 cp -r ocicl/sly-*/* %{buildroot}%{_datadir}/icl/sly/
 
 # Install collected vendored licenses
-install -D -m 0644 VENDORED-LICENSES.txt %{buildroot}%{_datadir}/licenses/%{name}/VENDORED-LICENSES.txt
+install -D -m 0644 THIRD-PARTY-LICENSES.txt %{buildroot}%{_datadir}/licenses/%{name}/THIRD-PARTY-LICENSES.txt
 
 %post
 /sbin/ldconfig
@@ -73,7 +64,7 @@ install -D -m 0644 VENDORED-LICENSES.txt %{buildroot}%{_datadir}/licenses/%{name
 %license LICENSE
 %doc README.md
 %{_sysconfdir}/ld.so.conf.d/icl.conf
-%{_datadir}/licenses/%{name}/VENDORED-LICENSES.txt
+%{_datadir}/licenses/%{name}/THIRD-PARTY-LICENSES.txt
 %{_datadir}/icl/sly
 %{_libdir}/icl
 %{_bindir}/icl
