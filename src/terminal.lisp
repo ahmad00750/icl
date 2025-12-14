@@ -376,13 +376,26 @@
 (defun detect-terminal-background ()
   "Detect if terminal has light or dark background.
    Returns :dark, :light, or nil if unable to determine.
-   Caches result in *terminal-background*."
+   Caches result in *terminal-background*.
+
+   Environment variable ICL_BACKGROUND can override detection:
+   - ICL_BACKGROUND=dark  - assume dark background
+   - ICL_BACKGROUND=light - assume light background"
   (unless *terminal-background*
-    (multiple-value-bind (r g b) (query-terminal-background)
-      (when (and r g b)
-        (let ((luminance (compute-luminance r g b)))
-          (setf *terminal-background*
-                (if (< luminance 0.5) :dark :light))))))
+    ;; Check for environment variable override first
+    (let ((override (uiop:getenv "ICL_BACKGROUND")))
+      (cond
+        ((and override (string-equal override "dark"))
+         (setf *terminal-background* :dark))
+        ((and override (string-equal override "light"))
+         (setf *terminal-background* :light))
+        ;; No override - try terminal query
+        (t
+         (multiple-value-bind (r g b) (query-terminal-background)
+           (when (and r g b)
+             (let ((luminance (compute-luminance r g b)))
+               (setf *terminal-background*
+                     (if (< luminance 0.5) :dark :light)))))))))
   *terminal-background*)
 
 (defun terminal-dark-p ()

@@ -131,9 +131,7 @@ jobs:
         with:
           tag: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
-          body: |
-            Automated release for icl ${{ github.ref_name }}.
-            Includes RPM and DEB packages.
+          bodyFile: docs/release-notes/RELEASE-NOTES-${{ steps.get_version.outputs.version }}.md
           artifacts: |
             artifacts/rpm-packages/*.rpm
             artifacts/deb-packages/*.deb

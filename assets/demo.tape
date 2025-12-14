@@ -9,6 +9,9 @@ Set Width 800
 Set Height 500
 Set Theme "Dracula"
 
+# Set ICL_BACKGROUND to skip terminal background query (VHS doesn't support it)
+Env ICL_BACKGROUND "dark"
+
 Type "icl"
 Enter
 Sleep 4s

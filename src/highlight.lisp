@@ -394,8 +394,7 @@
   "Apply syntax highlighting to STRING. Returns highlighted string.
    If CURSOR-POS is provided, also highlights matching parentheses."
   (if (or (not *syntax-highlighting-enabled*)
-          (not *colors-enabled*)
-          (not (terminal-capable-p))
+          (not (colors-enabled-p))
           (zerop (length string)))
       string
       (let* ((tokens (tokenize-lisp string))

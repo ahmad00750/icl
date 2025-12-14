@@ -37,6 +37,7 @@ This release focuses on improved user experience with a cleaner interface, faste
 | Variable | Description |
 |----------|-------------|
 | `NO_COLOR` | When set to any non-empty value, disables colored output |
+| `ICL_BACKGROUND` | Override terminal background detection (`dark` or `light`) |
 
 ## Installation
 

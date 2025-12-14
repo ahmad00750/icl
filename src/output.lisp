@@ -42,9 +42,16 @@
 (defvar *color-prefix* (format nil "~C[38;5;244m" #\Escape))   ; Gray for =>
 (defvar *color-prompt* (format nil "~C[38;5;240m" #\Escape))   ; Dark gray for prompt
 
+(defun colors-enabled-p ()
+  "Return T if colors should be used.
+   Checks both *colors-enabled* and NO_COLOR environment variable at runtime."
+  (and *colors-enabled*
+       (not (no-color-p))
+       (terminal-capable-p)))
+
 (defun colorize (text color)
   "Wrap TEXT with COLOR codes if colors are enabled."
-  (if (and *colors-enabled* (terminal-capable-p))
+  (if (colors-enabled-p)
       (format nil "~A~A~A" color text *color-reset*)
       text))
 
