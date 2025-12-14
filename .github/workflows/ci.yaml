@@ -17,15 +17,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Cache ocicl dependencies
-        id: cache-ocicl
-        uses: actions/cache@v4
-        with:
-          path: ocicl
-          key: ocicl-deps-${{ hashFiles('ocicl.csv') }}
-
       - name: Install ocicl (Linux)
-        if: steps.cache-ocicl.outputs.cache-hit != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -39,7 +31,6 @@ jobs:
           ocicl setup > ~/.sbclrc
 
       - name: Fetch Lisp dependencies
-        if: steps.cache-ocicl.outputs.cache-hit != 'true'
         run: ocicl install
 
       - name: Upload ocicl directory
