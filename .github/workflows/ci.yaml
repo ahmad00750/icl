@@ -16,8 +16,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Cache ocicl dependencies
         id: cache-ocicl
@@ -79,8 +77,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Download ocicl dependencies
         uses: actions/download-artifact@v4
