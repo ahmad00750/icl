@@ -73,6 +73,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ocicl-deps
+          path: ocicl
 
       - name: Install deps (Linux)
         if: runner.os == 'Linux'
