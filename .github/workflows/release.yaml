@@ -33,11 +33,16 @@ jobs:
       - name: Fetch Lisp dependencies
         run: ocicl install
 
+      - name: Collect third-party licenses
+        run: ocicl collect-licenses > THIRD-PARTY-LICENSES.txt
+
       - name: Upload ocicl directory
         uses: actions/upload-artifact@v4
         with:
           name: ocicl-deps
-          path: ocicl
+          path: |
+            ocicl
+            THIRD-PARTY-LICENSES.txt
           retention-days: 1
 
   # ========================================
@@ -182,7 +187,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p dist
           cp icl.exe dist/
-          cp README.md LICENSE dist/
+          cp README.md LICENSE THIRD-PARTY-LICENSES.txt dist/
           cd dist && zip ../icl-${VERSION}-windows-amd64.zip *
 
       - name: Upload Windows artifact
@@ -221,7 +226,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p dist
           cp icl dist/
-          cp README.md LICENSE dist/
+          cp README.md LICENSE THIRD-PARTY-LICENSES.txt dist/
           cd dist && tar czf ../icl-${VERSION}-macos-arm64.tar.gz *
 
       - name: Upload macOS artifact
@@ -257,7 +262,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p dist
           cp icl dist/
-          cp README.md LICENSE dist/
+          cp README.md LICENSE THIRD-PARTY-LICENSES.txt dist/
           cd dist && tar czf ../icl-${VERSION}-macos-x64.tar.gz *
 
       - name: Upload macOS artifact
