@@ -2,6 +2,10 @@
 
 ICL is an enhanced REPL for Common Lisp. It provides a modern, terminal-based interactive experience with readline-style editing, persistent history, tab completion, and an extensible command system.
 
+<p align="center">
+  <img src="assets/demo.gif" alt="ICL Demo">
+</p>
+
 ## Features
 
 - **Multi-line input** - Automatically detects incomplete expressions
