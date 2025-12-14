@@ -30,9 +30,13 @@ helper commands to explore and evaluate Common Lisp code quickly.
 %autosetup
 
 %build
-# Fetch Lisp dependencies
+# Set up ocicl
 ocicl setup > ~/.sbclrc
-ocicl install
+
+# Fetch Lisp dependencies (skip if already vendored in source tarball)
+if [ ! -d ocicl ] || [ -z "$(ls -A ocicl 2>/dev/null)" ]; then
+    ocicl install
+fi
 
 # Build the executable
 make

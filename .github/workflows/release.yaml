@@ -30,10 +30,15 @@ jobs:
         run: |
           rpmdev-setuptree
 
+      - name: Vendor ocicl dependencies
+        run: |
+          ocicl install
+
       - name: Create source tarball
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           cd ..
+          # Include the ocicl vendored libraries in the source tarball
           tar czf ~/rpmbuild/SOURCES/icl-${VERSION}.tar.gz --transform "s,^icl,icl-${VERSION}," icl
 
       - name: Update spec file version
@@ -83,6 +88,10 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           sed -i "s/^icl (.*)/icl (${VERSION}-1) unstable; urgency=medium/" debian/changelog
+
+      - name: Vendor ocicl dependencies
+        run: |
+          ocicl install
 
       - name: Build DEB packages (binary and source)
         run: |

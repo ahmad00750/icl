@@ -5,7 +5,10 @@
 
 override_dh_auto_build:
 	ocicl setup > ~/.sbclrc
-	ocicl install
+	# Fetch Lisp dependencies (skip if already vendored in source tarball)
+	if [ ! -d ocicl ] || [ -z "$$(ls -A ocicl 2>/dev/null)" ]; then \
+		ocicl install; \
+	fi
 	make
 	ocicl collect-licenses >VENDORED-LICENSES.txt
 
