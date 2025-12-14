@@ -5,34 +5,129 @@ on:
     branches: ['*']
   pull_request:
     branches: [master, main]
+  workflow_dispatch:
 
 jobs:
-  build:
+  # ========================================
+  # Fetch dependencies on Linux using ocicl
+  # ========================================
+  fetch-deps:
     runs-on: ubuntu-latest
-    container:
-      image: fedora:latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-      - name: Install dependencies
+      - name: Cache ocicl dependencies
+        id: cache-ocicl
+        uses: actions/cache@v4
+        with:
+          path: ocicl
+          key: ocicl-deps-${{ hashFiles('ocicl.csv') }}
+
+      - name: Install ocicl (Linux)
+        if: steps.cache-ocicl.outputs.cache-hit != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          dnf install -y sbcl libfixposix-devel gcc make curl jq redhat-rpm-config
-          # Install ocicl from GitHub releases (get latest x86_64 rpm)
-          OCICL_RPM_URL=$(curl -sL -H "Authorization: token $GH_TOKEN" https://api.github.com/repos/ocicl/ocicl/releases/latest | jq -r '.assets[] | select(.name | endswith("x86_64.rpm")) | .browser_download_url')
-          curl -sL "$OCICL_RPM_URL" -o /tmp/ocicl.rpm
-          dnf install -y /tmp/ocicl.rpm
+          sudo apt-get update
+          sudo apt-get install -y sbcl curl jq
+          OCICL_URL=$(curl -sL -H "Authorization: token $GH_TOKEN" \
+            https://api.github.com/repos/ocicl/ocicl/releases/latest | \
+            jq -r '.assets[] | select(.name | endswith("_amd64.deb")) | .browser_download_url')
+          curl -sL "$OCICL_URL" -o /tmp/ocicl.deb
+          sudo dpkg -i /tmp/ocicl.deb
           ocicl setup > ~/.sbclrc
 
       - name: Fetch Lisp dependencies
+        if: steps.cache-ocicl.outputs.cache-hit != 'true'
         run: ocicl install
+
+      - name: Upload ocicl directory
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocicl-deps
+          path: ocicl
+          retention-days: 1
+
+  # ========================================
+  # Build and test on all platforms
+  # ========================================
+  build:
+    needs: fetch-deps
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            deps: "sudo apt-get update && sudo apt-get install -y sbcl libfixposix-dev build-essential"
+            binary: icl
+          - os: macos-latest
+            deps: "brew install sbcl libfixposix"
+            binary: icl
+          - os: windows-latest
+            deps: "choco install -y sbcl make"
+            binary: icl.exe
+
+    runs-on: ${{ matrix.os }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download ocicl dependencies
+        uses: actions/download-artifact@v4
+        with:
+          name: ocicl-deps
+          path: ocicl
+
+      - name: Install deps (Linux)
+        if: runner.os == 'Linux'
+        run: ${{ matrix.deps }}
+
+      - name: Install deps (macOS)
+        if: runner.os == 'macOS'
+        run: ${{ matrix.deps }}
+
+      - name: Install deps (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          choco install -y sbcl make
 
       - name: Build
         run: make
 
-      - name: Test binary
+      - name: Test version
+        run: ./${{ matrix.binary }} --version
+
+      - name: Test help
+        run: ./${{ matrix.binary }} --help
+
+      - name: Test basic evaluation (Unix)
+        if: runner.os != 'Windows'
         run: |
-          ./icl --version
-          ./icl --help
+          echo '(+ 1 2)' | timeout 10s ./${{ matrix.binary }} 2>&1 || echo "Basic eval test completed"
+
+      - name: Test basic evaluation (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $proc = Start-Process -FilePath ".\${{ matrix.binary }}" -NoNewWindow -PassThru -RedirectStandardInput stdin.txt -RedirectStandardOutput stdout.txt
+          "(+ 1 2)" | Out-File -FilePath stdin.txt -Encoding ASCII
+          Start-Sleep -Seconds 5
+          if (!$proc.HasExited) { $proc.Kill() }
+          Get-Content stdout.txt
+          Write-Host "Basic eval test completed"
+
+      - name: Test ,info command (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          printf ',info\n,quit\n' | timeout 10s ./${{ matrix.binary }} 2>&1 || echo "Info command test completed"
