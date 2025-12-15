@@ -83,6 +83,11 @@ jobs:
           cd ..
           tar czf ~/rpmbuild/SOURCES/icl-${VERSION}.tar.gz --transform "s,^icl,icl-${VERSION}," icl
 
+      - name: Update spec file version
+        run: |
+          VERSION=$(grep ':version' icl.asd | head -1 | sed 's/.*:version[[:space:]]*"\([^"]*\)".*/\1/')
+          sed -i "s/^Version:.*/Version:        ${VERSION}/" icl.spec
+
       - name: Build RPM and SRPM
         run: |
           cp icl.spec ~/rpmbuild/SPECS/
