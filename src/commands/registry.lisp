@@ -86,11 +86,12 @@ First string in BODY is documentation."
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
 (defun split-command-line (line)
-  "Split command line into tokens, respecting quoted strings.
+  "Split command line into tokens, respecting quoted strings and parentheses.
    Returns list of strings."
   (let ((tokens nil)
         (current (make-string-output-stream))
         (in-quote nil)
+        (paren-depth 0)
         (escape nil))
     (loop for char across line
           do (cond
@@ -98,10 +99,18 @@ First string in BODY is documentation."
                 (write-char char current)
                 (setf escape nil))
                ((char= char #\\)
-                (setf escape t))
+                (setf escape t)
+                (write-char char current))
+               ((and (not in-quote) (char= char #\())
+                (incf paren-depth)
+                (write-char char current))
+               ((and (not in-quote) (char= char #\)))
+                (decf paren-depth)
+                (write-char char current))
                ((char= char #\")
-                (setf in-quote (not in-quote)))
-               ((and (not in-quote) (member char '(#\Space #\Tab)))
+                (setf in-quote (not in-quote))
+                (write-char char current))
+               ((and (not in-quote) (zerop paren-depth) (member char '(#\Space #\Tab)))
                 (let ((token (get-output-stream-string current)))
                   (when (plusp (length token))
                     (push token tokens)))

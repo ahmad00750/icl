@@ -696,3 +696,147 @@ Use this command to view it after seeing an error message."
     (t
      (format t "~&No error backtrace recorded.~%")
      (format t "~&Backtraces are captured when evaluation errors occur.~%"))))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Time Command
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(define-command time (form-string)
+  "Time the evaluation of a form.
+Shows real time, run time, and memory allocation.
+Example: ,time (dotimes (i 1000000) (sqrt i))"
+  (handler-case
+      (let ((result (slynk-time form-string)))
+        (format t "~&~A~%" result))
+    (error (e)
+      (format *error-output* "~&Error: ~A~%" e))))
+
+(defun slynk-time (form-string)
+  "Evaluate FORM-STRING with timing via Slynk."
+  (unless *slynk-connected-p*
+    (error "Not connected to Slynk server"))
+  (let ((wrapper (format nil "(with-output-to-string (*trace-output*) (time (progn ~A nil)))" form-string)))
+    (slynk-client:slime-eval
+     `(cl:eval (cl:read-from-string ,wrapper))
+     *slynk-connection*)))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Load Command
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(define-command (load ld) (filename)
+  "Load a Lisp file.
+Example: ,load myfile.lisp
+Example: ,load /path/to/file.lisp"
+  (handler-case
+      (let* ((expanded (expand-filename filename))
+             (result (slynk-load-file expanded)))
+        (format t "~&~A~%" result))
+    (error (e)
+      (format *error-output* "~&Error loading file: ~A~%" e))))
+
+(defun expand-filename (filename)
+  "Expand ~ in FILENAME to home directory."
+  (let ((name (string-trim '(#\Space #\Tab #\") filename)))
+    (if (and (plusp (length name))
+             (char= (char name 0) #\~))
+        (merge-pathnames (subseq name 2)
+                         (user-homedir-pathname))
+        name)))
+
+(defun slynk-load-file (filename)
+  "Load FILENAME via Slynk."
+  (unless *slynk-connected-p*
+    (error "Not connected to Slynk server"))
+  (let ((namestring (namestring (truename filename))))
+    (slynk-client:slime-eval
+     `(cl:load ,namestring)
+     *slynk-connection*)
+    (format nil "Loaded ~A" namestring)))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Compile Command
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(define-command (compile-file cf) (filename)
+  "Compile a Lisp file.
+Example: ,compile-file myfile.lisp"
+  (handler-case
+      (let* ((expanded (expand-filename filename))
+             (result (slynk-compile-file expanded)))
+        (format t "~&~A~%" result))
+    (error (e)
+      (format *error-output* "~&Error compiling file: ~A~%" e))))
+
+(defun slynk-compile-file (filename)
+  "Compile FILENAME via Slynk."
+  (unless *slynk-connected-p*
+    (error "Not connected to Slynk server"))
+  (let ((namestring (namestring (truename filename))))
+    (slynk-client:slime-eval
+     `(cl:compile-file ,namestring)
+     *slynk-connection*)
+    (format nil "Compiled ~A" namestring)))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Disassemble Command
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(define-command (disassemble dis) (symbol-name)
+  "Disassemble a function.
+Example: ,disassemble my-function
+Example: ,dis mapcar"
+  (handler-case
+      (let ((result (slynk-disassemble symbol-name)))
+        (if result
+            (format t "~&~A~%" result)
+            (format *error-output* "~&No disassembly available for: ~A~%" symbol-name)))
+    (error (e)
+      (format *error-output* "~&Error: ~A~%" e))))
+
+(defun slynk-disassemble (name)
+  "Disassemble function NAME via Slynk."
+  (unless *slynk-connected-p*
+    (error "Not connected to Slynk server"))
+  (slynk-client:slime-eval
+   `(cl:with-output-to-string (cl:*standard-output*)
+      (cl:disassemble (cl:quote ,(read-from-string (string-upcase name)))))
+   *slynk-connection*))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Configuration Commands
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(define-command (reload-config rc) ()
+  "Reload the user configuration file (~/.iclrc).
+Example: ,reload-config"
+  (let ((cfile (config-file)))
+    (if (probe-file cfile)
+        (handler-case
+            (progn
+              (load cfile :verbose nil :print nil)
+              (format t "~&Reloaded ~A~%" cfile))
+          (error (e)
+            (format *error-output* "~&Error loading ~A: ~A~%" cfile e)))
+        (format t "~&Config file not found: ~A~%" cfile))))
+
+(define-command (show-config sc) ()
+  "Show configuration file location and customization options.
+Example: ,show-config"
+  (format t "~&Configuration:~%")
+  (format t "  Config file: ~A~%" (config-file))
+  (format t "  History file: ~A~%" (history-file))
+  (format t "  History size: ~D~%" *history-size*)
+  (format t "~%Available customization variables:~%")
+  (format t "  *prompt-string*    - Prompt format (default: \"~~A> \")~%")
+  (format t "  *result-prefix*    - Result prefix (default: \"=> \")~%")
+  (format t "  *colors-enabled*   - Enable colors (default: T)~%")
+  (format t "  *history-size*     - Max history entries (default: 1000)~%")
+  (format t "~%Available hooks:~%")
+  (format t "  *before-eval-hook* - Called before evaluation~%")
+  (format t "  *after-eval-hook*  - Called after evaluation~%")
+  (format t "  *prompt-hook*      - Custom prompt function~%")
+  (format t "  *error-hook*       - Custom error handler~%")
+  (format t "~%Example ~~/.iclrc:~%")
+  (format t "  (setf icl:*prompt-string* ~S)~%" "λ ~A> ")
+  (format t "  (setf icl:*colors-enabled* t)~%"))

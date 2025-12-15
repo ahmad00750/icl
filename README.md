@@ -124,6 +124,15 @@ Commands are prefixed with a comma. Type `,help` for a full list.
 | `,macroexpand <form>` | Expand macro once |
 | `,macroexpand-all <form>` | Fully expand all macros |
 
+### Development
+
+| Command | Description |
+|---------|-------------|
+| `,time <form>` | Time expression evaluation |
+| `,load <file>` | Load a Lisp file |
+| `,compile-file <file>` | Compile a file |
+| `,disassemble <fn>` | Disassemble a function |
+
 ### Debugging
 
 | Command | Description |
@@ -133,6 +142,13 @@ Commands are prefixed with a comma. Type `,help` for a full list.
 | `,trace <function>` | Enable tracing |
 | `,untrace <function>` | Disable tracing |
 | `,untrace-all` | Disable all tracing |
+
+### Configuration
+
+| Command | Description |
+|---------|-------------|
+| `,show-config` | Show config file location and customization options |
+| `,reload-config` | Reload ~/.iclrc |
 
 ### Session
 
@@ -189,6 +205,8 @@ Example `~/.iclrc`:
 | `Ctrl+L` | Clear screen |
 | `Ctrl+D` | EOF (exit if line empty) |
 | `Ctrl+C` | Cancel current input |
+| `Ctrl+R` | Reverse history search |
+| `Ctrl+G` | Cancel search |
 | `Up/Down` | Navigate history (on first/last line) or move cursor |
 | `Alt+Q` | Reindent current form |
 

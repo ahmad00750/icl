@@ -94,6 +94,22 @@
 (defvar *history-saved-buffer* nil
   "Saved buffer state when navigating history.")
 
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Reverse Search State
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defvar *search-mode* nil
+  "T when in reverse-search mode.")
+
+(defvar *search-pattern* ""
+  "Current search pattern.")
+
+(defvar *search-match-index* 0
+  "Index of current match in *search-matches*.")
+
+(defvar *search-matches* nil
+  "List of history indices matching the current pattern.")
+
 (defvar *screen-row* 0
   "Current screen row relative to line 0 of the buffer.")
 
@@ -251,6 +267,108 @@
     (setf (edit-buffer-lines buf) vec)
     (setf (edit-buffer-row buf) (1- (length lines)))
     (setf (edit-buffer-col buf) (length (aref vec (1- (length lines)))))))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Reverse History Search
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun search-history-for (pattern)
+  "Find all history entries containing PATTERN (case-insensitive).
+   Returns list of indices into *editor-history*."
+  (when (plusp (length pattern))
+    (let ((pat (string-downcase pattern))
+          (matches nil))
+      (loop for entry in *editor-history*
+            for i from 0
+            when (search pat (string-downcase entry))
+            do (push i matches))
+      (nreverse matches))))
+
+(defun enter-search-mode (buf)
+  "Enter reverse-search mode."
+  (setf *search-mode* t
+        *search-pattern* ""
+        *search-match-index* 0
+        *search-matches* nil)
+  ;; Save current buffer
+  (unless *history-saved-buffer*
+    (setf *history-saved-buffer* (buffer-contents buf))))
+
+(defun exit-search-mode (buf accept)
+  "Exit reverse-search mode.
+   If ACCEPT is T, keep the current match in buffer."
+  (when (and accept *search-matches* (< *search-match-index* (length *search-matches*)))
+    (let* ((hist-idx (nth *search-match-index* *search-matches*))
+           (entry (nth hist-idx *editor-history*)))
+      (buffer-set-contents buf entry)))
+  (setf *search-mode* nil
+        *search-pattern* ""
+        *search-match-index* 0
+        *search-matches* nil
+        *history-saved-buffer* nil))
+
+(defun update-search (buf)
+  "Update search matches based on current pattern and update buffer."
+  (setf *search-matches* (search-history-for *search-pattern*)
+        *search-match-index* 0)
+  (if *search-matches*
+      (let* ((hist-idx (first *search-matches*))
+             (entry (nth hist-idx *editor-history*)))
+        (buffer-set-contents buf entry))
+      ;; No matches - restore original
+      (when *history-saved-buffer*
+        (buffer-set-contents buf *history-saved-buffer*))))
+
+(defun search-next-match (buf)
+  "Move to next match in search results."
+  (when (and *search-matches*
+             (< (1+ *search-match-index*) (length *search-matches*)))
+    (incf *search-match-index*)
+    (let* ((hist-idx (nth *search-match-index* *search-matches*))
+           (entry (nth hist-idx *editor-history*)))
+      (buffer-set-contents buf entry))))
+
+(defun render-search-prompt ()
+  "Render the reverse search prompt."
+  (cursor-to-column 1)
+  (clear-line)
+  (let ((status (if *search-matches*
+                    (format nil "~D/~D" (1+ *search-match-index*) (length *search-matches*))
+                    "no match")))
+    (format t "~A`~A'~A: "
+            (colorize "(reverse-i-search)" *color-dim*)
+            *search-pattern*
+            (colorize (format nil "[~A]" status)
+                      (if *search-matches* *color-green* *color-red*))))
+  (force-output))
+
+(defun handle-search-key (buf key)
+  "Handle KEY in reverse-search mode.
+   Returns :continue, :accept, :cancel, or :next."
+  (cond
+    ;; Ctrl-R - next match
+    ((eql key :reverse-search)
+     (search-next-match buf)
+     :next)
+    ;; Enter - accept and exit
+    ((eql key :enter)
+     :accept)
+    ;; Escape or Ctrl-G - cancel
+    ((or (eql key :escape) (eql key :cancel-search))
+     :cancel)
+    ;; Backspace - delete from pattern
+    ((eql key :backspace)
+     (when (plusp (length *search-pattern*))
+       (setf *search-pattern* (subseq *search-pattern* 0 (1- (length *search-pattern*))))
+       (update-search buf))
+     :continue)
+    ;; Regular character - add to pattern
+    ((characterp key)
+     (setf *search-pattern* (concatenate 'string *search-pattern* (string key)))
+     (update-search buf)
+     :continue)
+    ;; Any other key - accept and pass through
+    (t :accept-and-pass)))
 
 (defun split-string-by-newline (string)
   "Split STRING by newlines, returning a list of strings."
@@ -450,6 +568,10 @@
     ((and (consp key) (eql (first key) :alt) (char-equal (rest key) #\q))
      (buffer-reindent buf)
      :redraw)
+    ;; Ctrl-R - enter reverse search mode
+    ((eql key :reverse-search)
+     (enter-search-mode buf)
+     :search-mode)
     ;; Regular character
     ((characterp key)
      (buffer-insert-char buf key)
@@ -473,7 +595,8 @@
           *history-saved-buffer* nil
           *screen-row* 0
           *last-key-was-tab* nil
-          *completion-line-col* nil)
+          *completion-line-col* nil
+          *search-mode* nil)
     (reset-completion-state)
     ;; Try to enter raw mode
     (let ((entered (enter-raw-mode)))
@@ -486,79 +609,112 @@
              (force-output)
              ;; Main loop
              (loop
-               (let* ((key (read-key))
-                      (prompt-len (visible-string-length (buffer-prompt-for-line buf (edit-buffer-row buf))))
-                      ;; Check if completion menu is active
-                      (menu-result (when (completion-menu-active-p)
-                                     (handle-menu-key buf key)))
-                      ;; Handle key normally if menu didn't consume it
-                      ;; For :menu-dismissed, process the key then force redraw
-                      (dismissed (eql menu-result :menu-dismissed))
-                      (result (cond
-                                (dismissed
-                                 ;; Menu was dismissed by this key - process key and force redraw
-                                 (handle-key buf key)
-                                 :redraw)
-                                (menu-result menu-result)
-                                (t (handle-key buf key)))))
-                 ;; Handle result
-                 (cond
-                   ;; Menu navigation - redraw line and menu
-                   ((eql result :menu-nav)
-                    (render-current-line buf)
-                    (render-completion-menu prompt-len (edit-buffer-col buf)))
-                   ;; Menu opened - render line and show menu
-                   ((eql result :menu-opened)
-                    (render-current-line buf)
-                    (render-completion-menu prompt-len (edit-buffer-col buf)))
-                   ;; Menu closed - clear menu area and redraw
-                   ((eql result :menu-closed)
-                    (clear-completion-menu 12)
-                    (render-buffer buf))
-                   ;; Standard cases
-                   ((eql result :done)
-                    ;; Close menu if open
-                    (when (completion-menu-active-p)
-                      (clear-completion-menu 12)
-                      (close-completion-menu))
-                    ;; Move to end, render without paren matching, print newline
-                    (buffer-move-to-end buf)
-                    (render-buffer-final buf)
-                    (format t "~%")
-                    (force-output)
-                    (let ((contents (buffer-contents buf)))
-                      (history-add contents)
-                      (return contents)))
-                   ((eql result :eof)
-                    (when (completion-menu-active-p)
-                      (clear-completion-menu 12))
-                    (format t "~%")
-                    (force-output)
-                    (return :eof))
-                   ((eql result :cancel)
-                    (when (completion-menu-active-p)
-                      (clear-completion-menu 12))
-                    (format t "~%")
-                    (force-output)
-                    (return :cancel))
-                   ((eql result :redraw)
-                    (render-buffer buf)
-                    ;; Re-render menu if still active
-                    (when (completion-menu-active-p)
-                      (render-completion-menu prompt-len (edit-buffer-col buf))))
-                   ((eql result :newline)
-                    ;; Close menu on newline
-                    (when (completion-menu-active-p)
-                      (clear-completion-menu 12)
-                      (close-completion-menu))
-                    ;; Full redraw to update paren highlighting on all lines
-                    (render-buffer buf))
-                   ((eql result :continue)
-                    (render-current-line buf)
-                    ;; Re-render menu if still active
-                    (when (completion-menu-active-p)
-                      (render-completion-menu prompt-len (edit-buffer-col buf))))
-                   (t nil)))))
+               (let ((key (read-key))
+                     (process-normal-key t))
+                 ;; Handle search mode separately
+                 (when *search-mode*
+                   (let ((search-result (handle-search-key buf key)))
+                     (cond
+                       ((eql search-result :continue)
+                        (render-search-prompt)
+                        (setf process-normal-key nil))
+                       ((eql search-result :next)
+                        (render-search-prompt)
+                        (setf process-normal-key nil))
+                       ((eql search-result :accept)
+                        (exit-search-mode buf t)
+                        (render-buffer buf)
+                        (setf process-normal-key nil))
+                       ((eql search-result :cancel)
+                        ;; Restore original buffer
+                        (when *history-saved-buffer*
+                          (buffer-set-contents buf *history-saved-buffer*))
+                        (exit-search-mode buf nil)
+                        (render-buffer buf)
+                        (setf process-normal-key nil))
+                       ((eql search-result :accept-and-pass)
+                        ;; Accept current match and process key normally
+                        (exit-search-mode buf t)
+                        (render-buffer buf)
+                        ;; Let key be processed below
+                        (setf process-normal-key t)))))
+                 ;; Process key normally if not consumed by search mode
+                 (when process-normal-key
+                   (let* ((prompt-len (visible-string-length (buffer-prompt-for-line buf (edit-buffer-row buf))))
+                          ;; Check if completion menu is active
+                          (menu-result (when (completion-menu-active-p)
+                                         (handle-menu-key buf key)))
+                          ;; Handle key normally if menu didn't consume it
+                          ;; For :menu-dismissed, process the key then force redraw
+                          (dismissed (eql menu-result :menu-dismissed))
+                          (result (cond
+                                    (dismissed
+                                     ;; Menu was dismissed by this key - process key and force redraw
+                                     (handle-key buf key)
+                                     :redraw)
+                                    (menu-result menu-result)
+                                    (t (handle-key buf key)))))
+                     ;; Handle result
+                     (cond
+                       ;; Search mode entered
+                       ((eql result :search-mode)
+                        (render-search-prompt))
+                       ;; Menu navigation - redraw line and menu
+                       ((eql result :menu-nav)
+                        (render-current-line buf)
+                        (render-completion-menu prompt-len (edit-buffer-col buf)))
+                       ;; Menu opened - render line and show menu
+                       ((eql result :menu-opened)
+                        (render-current-line buf)
+                        (render-completion-menu prompt-len (edit-buffer-col buf)))
+                       ;; Menu closed - clear menu area and redraw
+                       ((eql result :menu-closed)
+                        (clear-completion-menu 12)
+                        (render-buffer buf))
+                       ;; Standard cases
+                       ((eql result :done)
+                        ;; Close menu if open
+                        (when (completion-menu-active-p)
+                          (clear-completion-menu 12)
+                          (close-completion-menu))
+                        ;; Move to end, render without paren matching, print newline
+                        (buffer-move-to-end buf)
+                        (render-buffer-final buf)
+                        (format t "~%")
+                        (force-output)
+                        (let ((contents (buffer-contents buf)))
+                          (history-add contents)
+                          (return contents)))
+                       ((eql result :eof)
+                        (when (completion-menu-active-p)
+                          (clear-completion-menu 12))
+                        (format t "~%")
+                        (force-output)
+                        (return :eof))
+                       ((eql result :cancel)
+                        (when (completion-menu-active-p)
+                          (clear-completion-menu 12))
+                        (format t "~%")
+                        (force-output)
+                        (return :cancel))
+                       ((eql result :redraw)
+                        (render-buffer buf)
+                        ;; Re-render menu if still active
+                        (when (completion-menu-active-p)
+                          (render-completion-menu prompt-len (edit-buffer-col buf))))
+                       ((eql result :newline)
+                        ;; Close menu on newline
+                        (when (completion-menu-active-p)
+                          (clear-completion-menu 12)
+                          (close-completion-menu))
+                        ;; Full redraw to update paren highlighting on all lines
+                        (render-buffer buf))
+                       ((eql result :continue)
+                        (render-current-line buf)
+                        ;; Re-render menu if still active
+                        (when (completion-menu-active-p)
+                          (render-completion-menu prompt-len (edit-buffer-col buf))))
+                       (t nil)))))))
         (exit-raw-mode)))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────

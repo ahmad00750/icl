@@ -222,6 +222,8 @@
       ((char= c (code-char 21)) :clear-line) ; Ctrl-U
       ((char= c (code-char 12)) :clear-screen) ; Ctrl-L
       ((char= c (code-char 3)) :interrupt) ; Ctrl-C
+      ((char= c (code-char 18)) :reverse-search) ; Ctrl-R
+      ((char= c (code-char 7)) :cancel-search)  ; Ctrl-G
       ((char= c #\Tab) :tab)
       ;; Regular character
       (t c))))
