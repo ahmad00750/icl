@@ -169,8 +169,12 @@
       (generate-embedded-slynk-init port)
       ;; Try to find system Slynk
       (let ((slynk-dir (find-slynk-asd)))
+        ;; Verbose: show Slynk path
+        (when *verbose*
+          (format t "~&; Slynk directory: ~A~%" (or slynk-dir "(not found - trying Quicklisp)")))
         (if slynk-dir
             ;; Use ASDF to load Slynk (leverages FASL caching)
+            ;; Use uiop:unix-namestring to ensure forward slashes on all platforms
             (format nil "(progn
   (require :asdf)
   (push ~S asdf:*central-registry*)
@@ -185,7 +189,7 @@
     (when x (setf (symbol-value x) nil)))
   (funcall (read-from-string \"slynk:create-server\")
            :port ~D :dont-close t))"
-                    (namestring slynk-dir) port)
+                    (uiop:unix-namestring slynk-dir) port)
             ;; Try Quicklisp
             (format nil "(progn
   (unless (find-package :quicklisp)
@@ -274,10 +278,16 @@
     (when (and port (port-in-use-p port))
       (error "Port ~D is already in use" port))
     (setf *slynk-port* actual-port)
+    ;; Verbose: show port
+    (when *verbose*
+      (format t "~&; Slynk port: ~D~%" actual-port))
     ;; Start the inferior Lisp
     (let ((program (find-lisp-program lisp)))
     (unless program
       (error "Unknown Lisp implementation: ~A" lisp))
+    ;; Verbose: show program
+    (when *verbose*
+      (format t "~&; Lisp program: ~A~%" program))
     ;; Check if program exists
     (unless (program-exists-p program)
       (error "Cannot find ~A in PATH" program))

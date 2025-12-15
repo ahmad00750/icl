@@ -62,6 +62,15 @@
    :key :connect
    :description "Connect to existing Slynk server (host:port)"))
 
+(defun make-verbose-option ()
+  "Create --verbose option for debugging startup."
+  (clingon:make-option
+   :flag
+   :short-name #\v
+   :long-name "verbose"
+   :key :verbose
+   :description "Show verbose startup information"))
+
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; CLI Handler
 ;;; ─────────────────────────────────────────────────────────────────────────────
@@ -81,7 +90,10 @@
         (no-config (clingon:getopt cmd :no-config))
         (no-banner (clingon:getopt cmd :no-banner))
         (lisp-impl (clingon:getopt cmd :lisp))
-        (connect-str (clingon:getopt cmd :connect)))
+        (connect-str (clingon:getopt cmd :connect))
+        (verbose (clingon:getopt cmd :verbose)))
+    ;; Set verbose mode
+    (setf *verbose* verbose)
     ;; Load config FIRST so *default-lisp* can be set
     ;; (command line --lisp will override it below)
     (unless no-config
@@ -167,7 +179,8 @@ and an extensible command system."
                   (make-no-config-option)
                   (make-no-banner-option)
                   (make-lisp-option)
-                  (make-connect-option))
+                  (make-connect-option)
+                  (make-verbose-option))
    :handler #'handle-cli
    :examples '(("Start REPL (auto-detects Lisp):" . "icl")
                ("Evaluate an expression:" . "icl -e '(+ 1 2)'")

@@ -127,4 +127,7 @@
 (defvar *in-repl* nil
   "T when ICL REPL is active.")
 
+(defvar *verbose* nil
+  "When T, print verbose startup information.")
+
 
