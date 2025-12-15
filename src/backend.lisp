@@ -175,11 +175,13 @@
         (if slynk-dir
             ;; Use ASDF to load Slynk (leverages FASL caching)
             ;; Use uiop:unix-namestring to ensure forward slashes on all platforms
+            ;; Note: Use read-from-string for asdf: symbols to avoid reader errors
+            ;; when ASDF isn't loaded yet (Windows SBCL doesn't preload ASDF)
             (format nil "(progn
   (require :asdf)
-  (push ~S asdf:*central-registry*)
+  (push ~S (symbol-value (read-from-string \"asdf:*central-registry*\")))
   (let ((*debug-io* (make-broadcast-stream)))
-    (asdf:load-system :slynk))
+    (funcall (read-from-string \"asdf:load-system\") :slynk))
   ;; Disable auth/secret expectations and SWANK->SLYNK translation
   (let ((secret (find-symbol \"SLY-SECRET\" :slynk)))
     (when secret (setf (symbol-function secret) (lambda () nil))))
