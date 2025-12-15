@@ -804,6 +804,182 @@ Example: ,dis mapcar"
    *slynk-connection*))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Profiling Commands
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(define-command profile (form-string)
+  "Profile a form using the statistical profiler.
+Shows CPU time spent in each function.
+Example: ,profile (dotimes (i 100000) (sqrt i))
+Example: ,profile (my-expensive-function)"
+  (handler-case
+      (let ((result (slynk-profile form-string)))
+        (format t "~&~A~%" result))
+    (error (e)
+      (format *error-output* "~&Error profiling: ~A~%" e))))
+
+(defun slynk-profile (form-string)
+  "Profile FORM-STRING using the statistical profiler via Slynk."
+  (unless *slynk-connected-p*
+    (error "Not connected to Slynk server"))
+  ;; First, ensure sb-sprof is loaded
+  (slynk-client:slime-eval
+   '(cl:eval (cl:read-from-string "(require 'sb-sprof)"))
+   *slynk-connection*)
+  ;; Now run with profiling - package exists so we can reference it
+  ;; Use :threads :all to capture slynk worker threads
+  ;; Use small sample interval (1ms) for better coverage of fast operations
+  (let ((wrapper (format nil "
+(progn
+  #+sbcl
+  (progn
+    (sb-sprof:with-profiling (:report :flat :loop nil :threads :all :sample-interval 0.001)
+      ~A)
+    (with-output-to-string (*standard-output*)
+      (sb-sprof:report :type :flat)))
+  #-sbcl
+  \"Profiling only available on SBCL\")" form-string)))
+    (slynk-client:slime-eval
+     `(cl:eval (cl:read-from-string ,wrapper))
+     *slynk-connection*)))
+
+(define-command (profile-start ps) ()
+  "Start the statistical profiler for ongoing profiling.
+Use ,profile-stop to stop and see results.
+Example: ,profile-start"
+  (handler-case
+      (let ((result (slynk-profile-start)))
+        (format t "~&~A~%" result))
+    (error (e)
+      (format *error-output* "~&Error: ~A~%" e))))
+
+(defun slynk-profile-start ()
+  "Start statistical profiler via Slynk."
+  (unless *slynk-connected-p*
+    (error "Not connected to Slynk server"))
+  (slynk-client:slime-eval
+   `(cl:eval (cl:read-from-string
+              "(progn (require 'sb-sprof) (funcall (find-symbol \"START-PROFILING\" \"SB-SPROF\") :threads :all :sample-interval 0.001) \"Profiler started\")"))
+   *slynk-connection*))
+
+(define-command (profile-stop pst) ()
+  "Stop the statistical profiler and show results.
+Example: ,profile-stop"
+  (handler-case
+      (let ((result (slynk-profile-stop)))
+        (format t "~&~A~%" result))
+    (error (e)
+      (format *error-output* "~&Error: ~A~%" e))))
+
+(defun slynk-profile-stop ()
+  "Stop statistical profiler and get report via Slynk."
+  (unless *slynk-connected-p*
+    (error "Not connected to Slynk server"))
+  (slynk-client:slime-eval
+   `(cl:eval (cl:read-from-string
+              "(progn
+                 (funcall (find-symbol \"STOP-PROFILING\" \"SB-SPROF\"))
+                 (with-output-to-string (*standard-output*)
+                   (funcall (find-symbol \"REPORT\" \"SB-SPROF\") :type :flat)))"))
+   *slynk-connection*))
+
+(define-command profile-reset ()
+  "Reset the profiler, clearing all collected data.
+Example: ,profile-reset"
+  (handler-case
+      (let ((result (slynk-profile-reset)))
+        (format t "~&~A~%" result))
+    (error (e)
+      (format *error-output* "~&Error: ~A~%" e))))
+
+(defun slynk-profile-reset ()
+  "Reset profiler via Slynk."
+  (unless *slynk-connected-p*
+    (error "Not connected to Slynk server"))
+  (slynk-client:slime-eval
+   `(cl:eval (cl:read-from-string
+              "(progn (funcall (find-symbol \"RESET\" \"SB-SPROF\")) \"Profiler reset\")"))
+   *slynk-connection*))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Stepping/Debugging Commands
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(define-command step (form-string)
+  "Show evaluation steps for a form using trace output.
+Temporarily traces key functions to show what gets called.
+Example: ,step (mapcar #'1+ '(1 2 3))
+Note: For full interactive stepping, connect to Slynk from SLY/SLIME."
+  (handler-case
+      (let ((result (slynk-step form-string)))
+        (format t "~&~A~%" result))
+    (error (e)
+      (format *error-output* "~&Error during stepping: ~A~%" e))))
+
+(defun slynk-step (form-string)
+  "Show evaluation steps for FORM-STRING via Slynk using trace."
+  (unless *slynk-connected-p*
+    (error "Not connected to Slynk server"))
+  ;; Use trace to show function calls during evaluation
+  ;; Extract function names from the form and trace them temporarily
+  (let ((wrapper (format nil "
+(let ((*trace-output* (make-string-output-stream))
+      (traced-fns nil))
+  (labels ((find-functions (form)
+             ;; Find function names in the form to trace
+             (when (consp form)
+               (let ((op (car form)))
+                 (when (and (symbolp op)
+                            (fboundp op)
+                            (not (special-operator-p op))
+                            (not (macro-function op)))
+                   (pushnew op traced-fns)))
+               (dolist (sub (cdr form))
+                 (find-functions sub)))))
+    ;; Parse and analyze the form
+    (let ((parsed (read-from-string ~S)))
+      (find-functions parsed)
+      ;; Trace found functions
+      (dolist (fn traced-fns)
+        (ignore-errors (eval `(trace ,fn))))
+      (unwind-protect
+          (let ((result (multiple-value-list (eval parsed))))
+            (let ((trace-str (get-output-stream-string *trace-output*)))
+              (format nil \"~~@[Trace:~~%%~~A~~%%~~]Result: ~~{~~S~~^, ~~}\"
+                      (if (plusp (length trace-str)) trace-str nil)
+                      result)))
+        ;; Untrace everything
+        (dolist (fn traced-fns)
+          (ignore-errors (eval `(untrace ,fn))))))))" form-string)))
+    (slynk-client:slime-eval
+     `(cl:eval (cl:read-from-string ,wrapper))
+     *slynk-connection*)))
+
+(define-command (stack-trace stk) ()
+  "Show the current stack trace.
+Displays the call stack in the inferior Lisp.
+Example: ,stack-trace
+Example: ,stk"
+  (handler-case
+      (let ((result (slynk-stack-trace)))
+        (format t "~&~A~%" result))
+    (error (e)
+      (format *error-output* "~&Error: ~A~%" e))))
+
+(defun slynk-stack-trace ()
+  "Get current stack trace via Slynk."
+  (unless *slynk-connected-p*
+    (error "Not connected to Slynk server"))
+  (slynk-client:slime-eval
+   `(cl:eval (cl:read-from-string
+              "#+sbcl
+               (with-output-to-string (s)
+                 (sb-debug:print-backtrace :stream s :count 20))
+               #-sbcl
+               \"Stack trace only available on SBCL\""))
+   *slynk-connection*))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; System Loading (trivial-system-loader style)
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
