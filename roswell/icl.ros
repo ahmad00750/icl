@@ -1,0 +1,38 @@
+#!/bin/sh
+#|-*- mode:lisp -*-|#
+#|
+exec ros -Q -- $0 "$@"
+|#
+
+;;; icl.ros --- Roswell script for ICL (Interactive Common Lisp)
+;;;
+;;; SPDX-License-Identifier: MIT
+;;;
+;;; Copyright (C) 2025  Anthony Green <green@moxielogic.com>
+;;;
+;;; Install with: ros install atgreen/icl
+;;; Run with: icl
+;;;
+;;; This script loads and runs ICL, an enhanced REPL for Common Lisp.
+
+(progn
+  ;; Ensure ASDF is available
+  (require :asdf)
+
+  ;; Load ICL system
+  (handler-case
+      (asdf:load-system :icl)
+    (error (e)
+      (format *error-output* "~&Error loading ICL: ~A~%" e)
+      (format *error-output* "~&Make sure ICL is installed. Try: ros install atgreen/icl~%")
+      (uiop:quit 1))))
+
+(defun main (&rest argv)
+  "Main entry point for Roswell script."
+  (declare (ignorable argv))
+  ;; ICL handles its own command-line parsing via clingon
+  ;; We need to set the command line arguments for clingon to see
+  (let ((sb-ext:*posix-argv* (cons "icl" argv)))
+    (icl:main)))
+
+;;; vim: set ft=lisp lisp:

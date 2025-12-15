@@ -40,6 +40,13 @@ Debian-based systems:
 sudo dpkg -i icl_*.deb
 ```
 
+### Roswell
+
+If you have [Roswell](https://roswell.github.io/) installed:
+```sh
+ros install atgreen/icl
+```
+
 ### Building from Source
 
 Requirements:
