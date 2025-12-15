@@ -26,36 +26,18 @@ ICL is an enhanced REPL for Common Lisp. It provides a modern, terminal-based in
 
 ## Installation
 
-### Pre-built Packages
+### Pre-built Binaries
 
-Download the latest RPM or DEB package from the [GitHub Releases](https://github.com/atgreen/icl/releases) page.
+Download from [GitHub Releases](https://github.com/atgreen/icl/releases):
 
-RPM-based systems (Fedora, RHEL):
-```sh
-sudo dnf install ./icl-*.rpm
-```
+| Platform | Formats |
+|----------|---------|
+| Linux | RPM, DEB |
+| Windows | ZIP, EXE installer, MSI installer |
 
-Debian-based systems:
-```sh
-sudo dpkg -i icl_*.deb
-```
-
-### Roswell
-
-If you have [Roswell](https://roswell.github.io/) and [ocicl](https://github.com/ocicl/ocicl) installed:
-```sh
-ros install atgreen/icl
-cd ~/.roswell/local-projects/atgreen/icl
-ocicl install
-```
-Then run with `icl`.
+[Roswell](https://roswell.github.io/) users can also install with `ros install atgreen/icl`.
 
 ### Building from Source
-
-Requirements:
-- SBCL
-- ocicl
-- libfixposix-devel (for osicat)
 
 ```sh
 git clone https://github.com/atgreen/icl.git
@@ -64,7 +46,7 @@ ocicl install
 make
 ```
 
-The resulting `icl` binary can be copied anywhere.
+Requires SBCL, [ocicl](https://github.com/ocicl/ocicl), and libfixposix-devel.
 
 ## Usage
 
