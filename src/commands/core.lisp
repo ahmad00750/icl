@@ -970,6 +970,37 @@ Note: For full interactive stepping, connect to Slynk from SLY/SLIME."
 ;;; System Loading (trivial-system-loader style)
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
+(define-command libyear ()
+  "Show dependency freshness metric using OCICL.
+Libyear measures how out-of-date your dependencies are.
+Requires ocicl to be installed and an ocicl.csv in the current directory."
+  (handler-case
+      (let ((output (uiop:run-program '("ocicl" "libyear")
+                                      :output :string
+                                      :error-output :output
+                                      :ignore-error-status t)))
+        (format t "~&~A" output))
+    (error (e)
+      (format *error-output* "~&Error: ~A~%Is ocicl installed? See https://github.com/ocicl/ocicl~%" e))))
+
+(define-command changes (&optional system)
+  "Show LLM-generated changelog for OCICL packages.
+Without argument, shows changes for all outdated dependencies.
+With SYSTEM, shows changes for that specific system.
+Example: ,changes
+Example: ,changes alexandria"
+  (handler-case
+      (let* ((args (if system
+                       (list "ocicl" "changes" system)
+                       '("ocicl" "changes")))
+             (output (uiop:run-program args
+                                       :output :string
+                                       :error-output :output
+                                       :ignore-error-status t)))
+        (format t "~&~A" output))
+    (error (e)
+      (format *error-output* "~&Error: ~A~%Is ocicl installed? See https://github.com/ocicl/ocicl~%" e))))
+
 (define-command (load-system ql) (system-name)
   "Load a system using OCICL, Quicklisp, or ASDF (whichever is available).
 Tries in order: OCICL (with download), Quicklisp, plain ASDF.
