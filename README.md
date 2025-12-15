@@ -272,7 +272,7 @@ ICL aims to support multiple Common Lisp implementations. SBCL is the primary de
 | Implementation | Status |
 |---------------|--------|
 | SBCL | Tested |
-| CCL | Untested |
+| CCL | Tested |
 | ECL | Tested |
 | ABCL | Tested |
 | Clasp | Untested |

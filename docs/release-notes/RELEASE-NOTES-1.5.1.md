@@ -3,8 +3,9 @@
 ## New Features
 
 ### Multi-Implementation Support
-- ABCL (Armed Bear Common Lisp) now works as a backend
+- CCL (Clozure Common Lisp) now works as a backend
 - ECL (Embeddable Common Lisp) now works as a backend
+- ABCL (Armed Bear Common Lisp) now works as a backend
 - Configure via `~/.iclrc`: see README for details
 
 ### Environment Variables
@@ -18,7 +19,7 @@
 ## Documentation
 
 - Updated installation section with Windows binary formats
-- ABCL and ECL marked as tested in supported implementations table
+- CCL, ECL, and ABCL marked as tested in supported implementations table
 
 ## Breaking Changes
 
