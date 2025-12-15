@@ -296,6 +296,9 @@
            (eval-arg (get-lisp-eval-arg lisp))
            (args (append (get-lisp-args lisp)
                          (list eval-arg init-code))))
+      ;; Verbose: show init code
+      (when *verbose*
+        (format t "~&; Init code:~%~A~%~%" init-code))
       #+sbcl
       (setf *inferior-process*
             (sb-ext:run-program program args
@@ -307,14 +310,28 @@
       #-sbcl
       (error "Process spawning not implemented for this Lisp")
       (setf *current-lisp* lisp)
+      ;; Verbose: check if process started
+      (when *verbose*
+        (format t "~&; Process created: ~A~%" (if *inferior-process* "yes" "no"))
+        #+sbcl
+        (format t "~&; Process status: ~A~%" (sb-ext:process-status *inferior-process*)))
       ;; Wait for Slynk to start with spinner
       (let ((ticks 0)
             (max-ticks 100)  ; 10 seconds max
-            (message (format nil "Starting ~A..." lisp)))
+            (message (format nil "Starting ~A..." lisp))
+            #+sbcl (proc-output (sb-ext:process-output *inferior-process*)))
         (loop
           (show-spinner message)
           (sleep 0.1)
           (incf ticks)
+          ;; Verbose: show any output from inferior process
+          #+sbcl
+          (when (and *verbose* proc-output (listen proc-output))
+            (clear-spinner)
+            (loop while (listen proc-output)
+                  do (let ((char (read-char proc-output nil nil)))
+                       (when char (write-char char))))
+            (force-output))
           ;; Try to connect after initial delay, then every 0.5s
           (when (and (>= ticks 15)  ; First attempt after 1.5s
                      (zerop (mod ticks 5)))
@@ -323,6 +340,13 @@
               (return t)))
           (when (>= ticks max-ticks)
             (clear-spinner)
+            ;; Verbose: show final output before stopping
+            #+sbcl
+            (when (and *verbose* proc-output)
+              (loop while (listen proc-output)
+                    do (let ((char (read-char proc-output nil nil)))
+                         (when char (write-char char))))
+              (force-output))
             (stop-inferior-lisp)
             (error "Failed to connect to Slynk after ~D seconds" (/ max-ticks 10)))))))))
 
