@@ -89,7 +89,8 @@
    Search order:
    1. ICL_SLYNK_PATH environment variable
    2. ./slynk/ relative to executable (development)
-   3. /usr/share/icl/sly/slynk/ (installed)"
+   3. ./ocicl/sly-*/slynk/ relative to executable (ocicl development)
+   4. /usr/share/icl/sly/slynk/ (installed, Unix only)"
   (let ((env-path (uiop:getenv "ICL_SLYNK_PATH")))
     ;; 1. Environment variable override
     (when (and env-path (probe-file env-path))
@@ -104,8 +105,14 @@
                       *default-pathname-defaults*))
          (local-slynk (merge-pathnames "slynk/slynk-loader.lisp" exe-dir)))
     (when (probe-file local-slynk)
-      (return-from find-bundled-slynk local-slynk)))
-  ;; 3. System install location
+      (return-from find-bundled-slynk local-slynk))
+    ;; 3. Check ocicl directory for sly-*/slynk (wildcard match)
+    (let ((ocicl-pattern (merge-pathnames "ocicl/sly-*/slynk/slynk-loader.lisp" exe-dir)))
+      (let ((matches (directory ocicl-pattern)))
+        (when matches
+          (return-from find-bundled-slynk (first matches))))))
+  ;; 4. System install location (Unix only)
+  #-windows
   (let ((system-slynk (pathname "/usr/share/icl/sly/slynk/slynk-loader.lisp")))
     (when (probe-file system-slynk)
       (return-from find-bundled-slynk system-slynk)))
@@ -162,13 +169,19 @@
       (generate-embedded-slynk-init port)
       ;; Try to find system Slynk
       (let ((slynk-dir (find-slynk-asd)))
+        ;; Verbose: show Slynk path
+        (when *verbose*
+          (format t "~&; Slynk directory: ~A~%" (or slynk-dir "(not found - trying Quicklisp)")))
         (if slynk-dir
             ;; Use ASDF to load Slynk (leverages FASL caching)
+            ;; Use uiop:unix-namestring to ensure forward slashes on all platforms
+            ;; Note: Use read-from-string for asdf: symbols to avoid reader errors
+            ;; when ASDF isn't loaded yet (Windows SBCL doesn't preload ASDF)
             (format nil "(progn
   (require :asdf)
-  (push ~S asdf:*central-registry*)
+  (push ~S (symbol-value (read-from-string \"asdf:*central-registry*\")))
   (let ((*debug-io* (make-broadcast-stream)))
-    (asdf:load-system :slynk))
+    (funcall (read-from-string \"asdf:load-system\") :slynk))
   ;; Disable auth/secret expectations and SWANK->SLYNK translation
   (let ((secret (find-symbol \"SLY-SECRET\" :slynk)))
     (when secret (setf (symbol-function secret) (lambda () nil))))
@@ -178,7 +191,7 @@
     (when x (setf (symbol-value x) nil)))
   (funcall (read-from-string \"slynk:create-server\")
            :port ~D :dont-close t))"
-                    (namestring slynk-dir) port)
+                    (uiop:unix-namestring slynk-dir) port)
             ;; Try Quicklisp
             (format nil "(progn
   (unless (find-package :quicklisp)
@@ -267,10 +280,16 @@
     (when (and port (port-in-use-p port))
       (error "Port ~D is already in use" port))
     (setf *slynk-port* actual-port)
+    ;; Verbose: show port
+    (when *verbose*
+      (format t "~&; Slynk port: ~D~%" actual-port))
     ;; Start the inferior Lisp
     (let ((program (find-lisp-program lisp)))
     (unless program
       (error "Unknown Lisp implementation: ~A" lisp))
+    ;; Verbose: show program
+    (when *verbose*
+      (format t "~&; Lisp program: ~A~%" program))
     ;; Check if program exists
     (unless (program-exists-p program)
       (error "Cannot find ~A in PATH" program))
@@ -279,6 +298,9 @@
            (eval-arg (get-lisp-eval-arg lisp))
            (args (append (get-lisp-args lisp)
                          (list eval-arg init-code))))
+      ;; Verbose: show init code
+      (when *verbose*
+        (format t "~&; Init code:~%~A~%~%" init-code))
       #+sbcl
       (setf *inferior-process*
             (sb-ext:run-program program args
@@ -290,14 +312,28 @@
       #-sbcl
       (error "Process spawning not implemented for this Lisp")
       (setf *current-lisp* lisp)
+      ;; Verbose: check if process started
+      (when *verbose*
+        (format t "~&; Process created: ~A~%" (if *inferior-process* "yes" "no"))
+        #+sbcl
+        (format t "~&; Process status: ~A~%" (sb-ext:process-status *inferior-process*)))
       ;; Wait for Slynk to start with spinner
       (let ((ticks 0)
             (max-ticks 100)  ; 10 seconds max
-            (message (format nil "Starting ~A..." lisp)))
+            (message (format nil "Starting ~A..." lisp))
+            #+sbcl (proc-output (sb-ext:process-output *inferior-process*)))
         (loop
           (show-spinner message)
           (sleep 0.1)
           (incf ticks)
+          ;; Verbose: show any output from inferior process
+          #+sbcl
+          (when (and *verbose* proc-output (listen proc-output))
+            (clear-spinner)
+            (loop while (listen proc-output)
+                  do (let ((char (read-char proc-output nil nil)))
+                       (when char (write-char char))))
+            (force-output))
           ;; Try to connect after initial delay, then every 0.5s
           (when (and (>= ticks 15)  ; First attempt after 1.5s
                      (zerop (mod ticks 5)))
@@ -306,6 +342,13 @@
               (return t)))
           (when (>= ticks max-ticks)
             (clear-spinner)
+            ;; Verbose: show final output before stopping
+            #+sbcl
+            (when (and *verbose* proc-output)
+              (loop while (listen proc-output)
+                    do (let ((char (read-char proc-output nil nil)))
+                         (when char (write-char char))))
+              (force-output))
             (stop-inferior-lisp)
             (error "Failed to connect to Slynk after ~D seconds" (/ max-ticks 10)))))))))
 
