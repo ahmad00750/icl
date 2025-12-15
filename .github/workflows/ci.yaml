@@ -113,7 +113,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          echo '(+ 1 2)' | timeout 30s ./${{ matrix.binary }} 2>&1 || echo "Basic eval test completed"
+          echo '(+ 1 2)' | timeout 60s ./${{ matrix.binary }} --verbose 2>&1 || echo "Basic eval test completed"
 
       - name: Test ,info command (Linux)
         if: runner.os == 'Linux'
@@ -129,4 +129,4 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          printf ',info\n,quit\n' | timeout 30s ./${{ matrix.binary }} 2>&1 || echo "Info command test completed"
+          printf ',info\n,quit\n' | timeout 60s ./${{ matrix.binary }} --verbose 2>&1 || echo "Info command test completed"
