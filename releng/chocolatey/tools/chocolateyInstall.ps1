@@ -12,7 +12,7 @@ $toolsDir = "$(Split-Path -Parent $MyInvocation.MyCommand.Definition)"
 $packageArgs = @{
   packageName    = $env:ChocolateyPackageName
   unzipLocation  = $toolsDir
-  url64bit       = 'https://github.com/atgreen/icl/releases/download/v__VERSION__/icl-__VERSION__-windows.zip'
+  url64bit       = 'https://github.com/atgreen/icl/releases/download/v__VERSION__/icl-__VERSION__-windows-amd64.zip'
   checksum64     = '__CHECKSUM__'
   checksumType64 = 'sha256'
 }

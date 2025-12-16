@@ -311,6 +311,15 @@ jobs:
           name: chocolatey-package
           path: releng/chocolatey/*.nupkg
 
+      - name: Push to Chocolatey.org
+        if: ${{ vars.PUSH_TO_CHOCOLATEY == 'true' }}
+        shell: powershell
+        env:
+          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
+        run: |
+          cd releng\chocolatey
+          choco push *.nupkg --source https://push.chocolatey.org/ --api-key $env:CHOCOLATEY_API_KEY
+
   # ========================================
   # Build macOS executables
   # ========================================
