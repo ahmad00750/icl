@@ -23,6 +23,7 @@ ICL is an enhanced REPL for Common Lisp. It provides a modern, terminal-based in
 - **Tracing** - Enable/disable function tracing
 - **Source location** - Find where functions are defined
 - **Terminal-aware colors** - Automatically detects light/dark terminal background
+- **AI integration** - Use `,explain` to get AI-powered explanations of code, errors, and results
 
 ## Installation
 
@@ -179,6 +180,18 @@ The interactive inspector (`,i` or `,inspect`) provides a TUI for exploring obje
 | `,clear` | Clear terminal |
 | `,quit` | Exit ICL |
 
+### AI Integration
+
+| Command | Description |
+|---------|-------------|
+| `,explain` | Explain last result or error using AI |
+| `,explain <code>` | Explain specific code |
+| `,ai-cli [name]` | Show or set AI backend (gemini, claude, codex) |
+
+The `,explain` command uses an AI CLI (auto-detected from PATH) to provide explanations of Lisp code, errors, and results. When using Gemini CLI, ICL provides an MCP server that gives the AI **read-only** access to the live Lisp environment - it can query documentation, describe symbols, and search for functions, but **cannot execute any code**.
+
+Requires one of: [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Claude CLI](https://github.com/anthropics/claude-code), or [Codex CLI](https://github.com/openai/codex)
+
 ## History Variables
 
 ICL maintains history of recent values and inputs:
@@ -205,6 +218,7 @@ ICL loads `~/.iclrc` on startup (unless `--no-config` is specified). This file c
 | `*colors-enabled*` | Enable syntax coloring (default: `t`) |
 | `*history-size*` | Maximum history entries (default: `1000`) |
 | `*paredit-mode*` | Enable structural editing (default: `nil`) |
+| `*ai-cli*` | AI CLI for `,explain` (`:gemini`, `:claude`, `:codex`, or `:auto`) |
 
 ### Customizing Lisp Invocation
 
