@@ -1233,65 +1233,64 @@ Example: ,paredit        ; toggle
         (cleanup-gemini-mcp-config)))))
 
 (defun run-ai-cli-streaming (program args)
-  "Run AI CLI with streaming output."
+  "Run AI CLI, buffering output and rendering as markdown at the end.
+   Shows spinner with progress and elapsed time while working."
   (let* ((process (uiop:launch-program args
                                        :output :stream
                                        :error-output :stream))
          (out-stream (uiop:process-info-output process))
          (err-stream (uiop:process-info-error-output process))
-         (first-output nil)
-         (need-newline nil)  ; Track if we need newline before next stdout
+         ;; Buffer for accumulating all output
+         (output-buffer (make-array 0 :element-type 'character
+                                      :adjustable t :fill-pointer 0))
+         (char-count 0)
+         (start-time (get-internal-real-time))
          (spinner-frames *spinner-frames*)
          (spinner-idx 0))
     (unwind-protect
         (loop
           (let ((out-ready (listen out-stream))
                 (err-ready (listen err-stream)))
-            ;; Check if process is done and streams are empty
+            ;; Check if process is done
             (when (and (not out-ready)
                        (not err-ready)
                        (not (uiop:process-alive-p process)))
-              (when first-output (terpri))
+              ;; Clear spinner line
+              (format t "~C[2K~C[0G" #\Escape #\Escape)
+              ;; Render accumulated output as markdown
+              (when (> (length output-buffer) 0)
+                (format t "~A~%"
+                        (string-right-trim
+                         '(#\Newline #\Space)
+                         (tuition:render-markdown
+                          (coerce output-buffer 'string)
+                          :width 78))))
               (return))
-            ;; Show spinner while waiting for first output
+            ;; Main dispatch
             (cond
-              ((and (not out-ready) (not err-ready) (not first-output))
-               (format t "~C[2K~A Thinking (~A)...~C[0G"
-                       #\Escape
-                       (nth spinner-idx spinner-frames)
-                       program
-                       #\Escape)
-               (force-output)
-               (setf spinner-idx (mod (1+ spinner-idx) (length spinner-frames)))
-               (sleep 0.08))
-              ;; Read stderr (MCP messages, etc)
+              ;; Drain stderr to prevent blocking (discard output)
               (err-ready
-               (unless first-output
-                 (format t "~C[2K~C[0G" #\Escape #\Escape)
-                 (setf first-output t)
-                 (terpri))
-               (let ((line (read-line err-stream nil nil)))
-                 ;; Gemini CLI writes MCP stderr directly, bypassing our stream
-                 ;; Just consume the line - visual separation comes from MCP server
-                 (when line
-                   (setf need-newline t))))
-              ;; Stream stdout directly
+               (read-line err-stream nil nil))
+              ;; Read stdout - accumulate
               (out-ready
-               (unless first-output
-                 (format t "~C[2K~C[0G" #\Escape #\Escape)
-                 (setf first-output t)
-                 (terpri))
-               ;; Add newline after stderr if needed
-               (when need-newline
-                 (terpri)
-                 (setf need-newline nil))
                (let ((char (read-char out-stream nil nil)))
                  (when char
-                   (write-char char)
-                   (force-output))))
-              ;; Small sleep to avoid busy-waiting
+                   (vector-push-extend char output-buffer)
+                   (incf char-count))))
+              ;; No input - show spinner with elapsed time
               (t
-               (sleep 0.01)))))
+               (let ((elapsed-secs (floor (- (get-internal-real-time) start-time)
+                                          internal-time-units-per-second)))
+                 (format t "~C[2K~A Thinking (~A, ~Ds, ~D chars)...~C[0G"
+                         #\Escape
+                         (nth spinner-idx spinner-frames)
+                         program
+                         elapsed-secs
+                         char-count
+                         #\Escape))
+               (force-output)
+               (setf spinner-idx (mod (1+ spinner-idx) (length spinner-frames)))
+               (sleep 0.05)))))
       ;; Cleanup
       (ignore-errors (close out-stream))
       (ignore-errors (close err-stream))
@@ -1316,7 +1315,15 @@ Example: ,paredit        ; toggle
 - get_function_arglist: Get the lambda list for a function/macro
 - read_source_file: Read source code from library files in ocicl/
 - list_source_files: List available source files in ocicl/
-Use these tools to look up documentation, explore symbols, or read library source code." base)
+Use these tools to look up documentation, explore symbols, or read library source code.
+
+IMPORTANT: Before calling any tool, output a visual marker so the user can see when tools are being used. Example:
+
+Let me look up the documentation for that function.
+
+*[Invoking get_documentation]*
+
+According to the documentation, MAPCAR takes..." base)
         base)))
 
 (define-command explain (&rest args)
