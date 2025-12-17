@@ -223,7 +223,9 @@
       ((char= c (code-char 10)) :enter)    ; LF
       ((char= c (code-char 4)) :ctrl-d)    ; Ctrl-D (delete char or EOF)
       ((char= c (code-char 1)) :home)      ; Ctrl-A
+      ((char= c (code-char 2)) :left)      ; Ctrl-B (backward)
       ((char= c (code-char 5)) :end)       ; Ctrl-E
+      ((char= c (code-char 6)) :right)     ; Ctrl-F (forward)
       ((char= c (code-char 11)) :kill-line) ; Ctrl-K
       ((char= c (code-char 21)) :clear-line) ; Ctrl-U
       ((char= c (code-char 12)) :clear-screen) ; Ctrl-L
