@@ -130,8 +130,14 @@
   "The singleton REPL WebSocket resource.")
 
 (defmethod hunchensocket:client-connected ((resource repl-resource) client)
+  ;; Only allow one browser connection at a time
+  (let ((existing-clients (remove client (hunchensocket:clients resource))))
+    (when existing-clients
+      ;; Close the new connection - only one browser allowed
+      (hunchensocket:close-connection client :reason "Only one browser connection allowed")
+      (return-from hunchensocket:client-connected)))
   ;; REPL thread will be started when terminal sends 'terminal-ready'
-  (declare (ignore client)))
+  )
 
 (defmethod hunchensocket:client-disconnected ((resource repl-resource) client)
   (declare (ignore client)))
@@ -258,7 +264,8 @@
 
 (defclass ws-output-stream (trivial-gray-streams:fundamental-character-output-stream)
   ((client :accessor stream-client :initarg :client)
-   (buffer :accessor buffer-of :initform (make-string-output-stream)))
+   (buffer :accessor buffer-of :initform (make-string-output-stream))
+   (lock :accessor stream-lock :initform (bt:make-lock "ws-output-lock")))
   (:documentation "Output stream that writes to WebSocket."))
 
 (defmethod trivial-gray-streams:stream-read-char ((stream ws-input-stream))
@@ -283,49 +290,47 @@
         (not (chanl:recv-blocks-p (input-queue resource))))))
 
 (defvar *ws-flush-timer* nil)
-(defvar *ws-flush-lock* (bt:make-lock "ws-flush-lock"))
+(defvar *ws-flush-timer-lock* (bt:make-lock "ws-flush-timer-lock"))
+
+(defun ws-schedule-flush (stream)
+  "Schedule a delayed flush for non-newline output."
+  (bt:with-lock-held (*ws-flush-timer-lock*)
+    (unless *ws-flush-timer*
+      (setf *ws-flush-timer*
+            (bt:make-thread
+             (lambda ()
+               (sleep 0.05)
+               (bt:with-lock-held (*ws-flush-timer-lock*)
+                 (setf *ws-flush-timer* nil))
+               (trivial-gray-streams:stream-force-output stream))
+             :name "ws-flush-timer")))))
 
 (defmethod trivial-gray-streams:stream-write-char ((stream ws-output-stream) char)
-  (write-char char (buffer-of stream))
+  (bt:with-lock-held ((stream-lock stream))
+    (write-char char (buffer-of stream)))
   ;; Flush on newline or schedule a flush for prompt-like output
   (if (char= char #\Newline)
       (trivial-gray-streams:stream-force-output stream)
-      ;; Schedule a delayed flush for non-newline output (like prompts)
-      (unless *ws-flush-timer*
-        (setf *ws-flush-timer*
-              (bt:make-thread
-               (lambda ()
-                 (sleep 0.05)
-                 (bt:with-lock-held (*ws-flush-lock*)
-                   (setf *ws-flush-timer* nil)
-                   (trivial-gray-streams:stream-force-output stream)))
-               :name "ws-flush-timer")))))
+      (ws-schedule-flush stream)))
 
 (defmethod trivial-gray-streams:stream-write-string ((stream ws-output-stream) string &optional start end)
-  (write-string string (buffer-of stream) :start (or start 0) :end end)
+  (bt:with-lock-held ((stream-lock stream))
+    (write-string string (buffer-of stream) :start (or start 0) :end end))
   ;; Check if string contains newline to flush
   (let ((s (subseq string (or start 0) end)))
     (if (find #\Newline s)
         (trivial-gray-streams:stream-force-output stream)
-        ;; Schedule delayed flush for non-newline strings
-        (unless *ws-flush-timer*
-          (setf *ws-flush-timer*
-                (bt:make-thread
-                 (lambda ()
-                   (sleep 0.05)
-                   (bt:with-lock-held (*ws-flush-lock*)
-                     (setf *ws-flush-timer* nil)
-                     (trivial-gray-streams:stream-force-output stream)))
-                 :name "ws-flush-timer")))))
+        (ws-schedule-flush stream)))
   string)
 
 (defmethod trivial-gray-streams:stream-force-output ((stream ws-output-stream))
-  (let ((text (get-output-stream-string (buffer-of stream))))
+  (let ((text (bt:with-lock-held ((stream-lock stream))
+                (prog1 (get-output-stream-string (buffer-of stream))
+                  (setf (buffer-of stream) (make-string-output-stream))))))
     (when (plusp (length text))
       ;; Send to all connected clients
       (dolist (client (hunchensocket:clients *repl-resource*))
-        (ws-send client "output" :data text))
-      (setf (buffer-of stream) (make-string-output-stream)))))
+        (ws-send client "output" :data text)))))
 
 (defmethod trivial-gray-streams:stream-finish-output ((stream ws-output-stream))
   (trivial-gray-streams:stream-force-output stream))
@@ -367,7 +372,8 @@
     .terminal-container .xterm { height: 100%%; width: 100%%; }
     .terminal-container .xterm-screen { height: 100%%; }
     .terminal-container .xterm-viewport { height: 100%%; overflow-y: auto !important; }
-    .dv-content-container { position: relative; }
+    .dv-content-container { position: relative; height: 100%%; }
+    .dv-content-container > .panel { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
     .detail-content { padding: 8px; white-space: pre-wrap; font-family: 'JetBrains Mono', monospace; }
     .inspector-entry { padding: 2px 8px; }
     .inspector-label { color: #888; }
@@ -678,8 +684,15 @@
        (call-next-method))
       ;; Main page at /icl/{token}
       ((string= path *browser-path*)
-       (setf (hunchentoot:content-type*) "text/html")
-       (browser-html))
+       ;; Only allow one browser connection
+       (if (and *repl-resource* (hunchensocket:clients *repl-resource*))
+           (progn
+             (setf (hunchentoot:return-code*) 409)
+             (setf (hunchentoot:content-type*) "text/plain")
+             "Browser session already active. Only one connection allowed.")
+           (progn
+             (setf (hunchentoot:content-type*) "text/html")
+             (browser-html))))
       ;; Serve assets
       ((and (> (length path) 8)
             (string= (subseq path 0 8) "/assets/"))
@@ -764,7 +777,8 @@
                      (*terminal-io* (make-two-way-stream in-stream out-stream))
                      (*query-io* (make-two-way-stream in-stream out-stream))
                      (*in-repl* t)
-                     (*input-count* 0))
+                     (*input-count* 0)
+                     (*browser-terminal-active* t))
                  ;; Use the real REPL loop with full editor support
                  (repl-loop)))
              :name "browser-repl")))))

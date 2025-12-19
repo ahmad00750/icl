@@ -117,6 +117,10 @@
             (record-repl-interaction input result-str nil))
           ;; Handle the result for display
           ;; Note: Editor already printed newline, so we're at start of line
+          ;; For browser sessions, give async output time to arrive before printing result
+          (when *browser-terminal-active*
+            (sleep 0.1)
+            (finish-output *standard-output*))
           (cond
             ((null result)
              ;; No result - might be output already printed
