@@ -333,11 +333,18 @@ ICL aims to support multiple Common Lisp implementations. SBCL is the primary de
 ICL operates as a frontend that communicates with a backend Lisp process via the Slynk protocol (from SLY). This architecture allows ICL to work with any Common Lisp implementation, provide consistent features regardless of backend, and connect to remote Lisp processes.
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                            USER TERMINAL                                │
-└────────────────────────────────────┬────────────────────────────────────┘
-                                     │
-                                     ▼
+┌──────────────────────────────────┐   ┌──────────────────────────────────┐
+│          USER TERMINAL           │   │          WEB BROWSER             │
+│                                  │   │  ┌────────────────────────────┐  │
+│  $ icl                           │   │  │  Packages │ Symbols │ Insp │  │
+│  COMMON-LISP-USER> _             │   │  ├──────────┴─────────┴──────┤  │
+│                                  │   │  │     xterm.js Terminal      │  │
+│                                  │   │  │  COMMON-LISP-USER> _       │  │
+└────────────────┬─────────────────┘   └──┼────────────────────────────┴──┘
+                 │                        │
+                 │ stdin/stdout           │ WebSocket + HTTP
+                 │                        │ (localhost:random-port)
+                 ▼                        ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                                 ICL                                     │
 │                       (Interactive Common Lisp)                         │
@@ -347,17 +354,17 @@ ICL operates as a frontend that communicates with a backend Lisp process via the
 │  │   Editor    │  │ Dispatcher  │  │ Completion  │  │   Manager   │     │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘     │
 │                                                                         │
-│  ┌───────────────────────────┐    ┌─────────────────────────────────┐   │
-│  │      Slynk Client         │    │      MCP HTTP Server            │   │
-│  │  (Backend Communication)  │    │    (AI Tool Integration)        │   │
-│  └─────────────┬─────────────┘    └───────────────▲─────────────────┘   │
-└────────────────┼──────────────────────────────────┼─────────────────────┘
-                 │                                  │
-                 │ Slynk Protocol                   │ HTTP (Streamable MCP)
-                 │ (localhost:random-port)          │ (localhost:random-port)
-                 │                                  │
-                 ▼                                  │
-┌────────────────────────────────┐  ┌───────────────┴─────────────────────┐
+│  ┌───────────────────────────┐  ┌────────────────┐  ┌───────────────┐   │
+│  │      Slynk Client         │  │ Browser Server │  │ MCP Server    │   │
+│  │  (Backend Communication)  │  │  (Hunchentoot) │  │ (AI Tools)    │   │
+│  └─────────────┬─────────────┘  └────────────────┘  └───────▲───────┘   │
+└────────────────┼────────────────────────────────────────────┼───────────┘
+                 │                                            │
+                 │ Slynk Protocol                             │ HTTP (MCP)
+                 │ (localhost:random-port)                    │
+                 │                                            │
+                 ▼                                            │
+┌────────────────────────────────┐  ┌─────────────────────────┴───────────┐
 │        INFERIOR LISP           │  │          AI CLI TOOLS               │
 │       (Backend Process)        │  │                                     │
 │                                │  │  ┌─────────┐ ┌────────┐ ┌────────┐  │
@@ -383,7 +390,7 @@ ICL operates as a frontend that communicates with a backend Lisp process via the
 └────────────────────────────────┘  └─────────────────────────────────────┘
 ```
 
-Both connections use randomly-assigned ports on localhost. When ICL starts an inferior Lisp, it finds an available port and configures Slynk to listen there. Similarly, the MCP server (started on-demand by `,explain`) binds to a random available port.
+All connections use randomly-assigned ports on localhost. When ICL starts an inferior Lisp, it finds an available port and configures Slynk to listen there. The browser interface (started with `,browse`) serves a Dockview-based IDE with package browser, symbol list, and inspector panels. The MCP server (started on-demand by `,explain`) provides read-only AI tool integration.
 
 ## License
 
