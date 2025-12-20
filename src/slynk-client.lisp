@@ -13,6 +13,9 @@
 (defvar *slynk-connection* nil
   "Current Slynk connection (slynk-client:swank-connection object).")
 
+(defvar *slynk-connection-lock* (bt:make-lock "slynk-connection")
+  "Lock for serializing access to the Slynk connection.")
+
 (defvar *slynk-port* 4005
   "Default port for Slynk connections.")
 
@@ -21,6 +24,11 @@
 
 (defvar *slynk-connected-p* nil
   "T when connected to a backend server.")
+
+(defmacro with-slynk-connection (&body body)
+  "Execute BODY with the Slynk connection lock held."
+  `(bt:with-lock-held (*slynk-connection-lock*)
+     ,@body))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Connection Management
@@ -120,9 +128,10 @@
           (ignore-errors
             (slynk:backtrace 0 30)))))" string)))
     (handler-case
-        (let ((result (slynk-client:slime-eval
-                       `(cl:eval (cl:read-from-string ,wrapper-code))
-                       *slynk-connection*)))
+        (let ((result (with-slynk-connection
+                        (slynk-client:slime-eval
+                         `(cl:eval (cl:read-from-string ,wrapper-code))
+                         *slynk-connection*))))
           (cond
             ;; Unexpected non-list result: treat as plain output with no values.
             ((not (consp result))
@@ -174,9 +183,10 @@ Returns (values output-string value-strings). Does not print to the local REPL."
         (list :ok out (mapcar (lambda (v) (write-to-string v :readably nil :pretty nil)) vals)))))
   (error (err)
     (list :error (princ-to-string err) nil)))" string))
-         (result (slynk-client:slime-eval
-                  `(cl:eval (cl:read-from-string ,wrapper-code))
-                  *slynk-connection*)))
+         (result (with-slynk-connection
+                   (slynk-client:slime-eval
+                    `(cl:eval (cl:read-from-string ,wrapper-code))
+                    *slynk-connection*))))
     (cond
       ((not (consp result))
        (values (princ-to-string result) nil))

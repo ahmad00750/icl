@@ -29,13 +29,16 @@
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
 (defun slynk-inspect-object (form-string)
-  "Inspect an object via Slynk. Returns inspection data."
+  "Inspect an object via Slynk. Returns inspection data.
+   Uses backend-eval with slynk:init-inspector for thread-safe operation."
   (unless *slynk-connected-p*
     (return-from slynk-inspect-object nil))
   (handler-case
-      (slynk-client:slime-eval
-       `(slynk:init-inspector ,form-string)
-       *slynk-connection*)
+      (let* ((code (format nil "(slynk:init-inspector ~S)" form-string))
+             (results (backend-eval code))
+             (result-string (first results)))
+        (when result-string
+          (ignore-errors (read-from-string result-string))))
     (error () nil)))
 
 (defun slynk-inspector-action (index)
@@ -43,9 +46,10 @@
   (unless *slynk-connected-p*
     (return-from slynk-inspector-action nil))
   (handler-case
-      (slynk-client:slime-eval
-       `(slynk:inspect-nth-part ,index)
-       *slynk-connection*)
+      (let* ((code (format nil "(slynk:inspect-nth-part ~D)" index))
+             (result-string (first (backend-eval code))))
+        (when result-string
+          (ignore-errors (read-from-string result-string))))
     (error () nil)))
 
 (defun slynk-inspector-pop ()
@@ -53,9 +57,9 @@
   (unless *slynk-connected-p*
     (return-from slynk-inspector-pop nil))
   (handler-case
-      (slynk-client:slime-eval
-       '(slynk:inspector-pop)
-       *slynk-connection*)
+      (let ((result-string (first (backend-eval "(slynk:inspector-pop)"))))
+        (when result-string
+          (ignore-errors (read-from-string result-string))))
     (error () nil)))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────

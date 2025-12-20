@@ -79,6 +79,15 @@
    :key :mcp-server
    :description "Run as MCP server, connecting to Slynk at host:port"))
 
+(defun make-browser-option ()
+  "Create -b/--browser option to start with browser interface."
+  (clingon:make-option
+   :flag
+   :short-name #\b
+   :long-name "browser"
+   :key :browser
+   :description "Start with browser interface instead of terminal REPL"))
+
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; CLI Handler
 ;;; ─────────────────────────────────────────────────────────────────────────────
@@ -100,7 +109,8 @@
         (lisp-impl (clingon:getopt cmd :lisp))
         (connect-str (clingon:getopt cmd :connect))
         (verbose (clingon:getopt cmd :verbose))
-        (mcp-server (clingon:getopt cmd :mcp-server)))
+        (mcp-server (clingon:getopt cmd :mcp-server))
+        (browser-mode (clingon:getopt cmd :browser)))
     ;; MCP server mode - special handling, runs without config
     (when mcp-server
       (multiple-value-bind (host port)
@@ -169,9 +179,18 @@
         (error (e)
           (format *error-output* "~&Error: ~A~%" e)
           (uiop:quit 1))))
-    ;; Otherwise start REPL (config already loaded)
-    (start-repl :load-config nil
-                :banner (not no-banner))))
+    ;; Start in browser mode or terminal REPL
+    (if browser-mode
+        ;; Browser mode - start browser interface
+        (progn
+          (format t "Starting ICL browser interface...~%")
+          (let ((url (start-browser :open-browser t)))
+            (format t "Browser started at ~A~%" url)
+            ;; Keep running until interrupted
+            (loop (sleep 1))))
+        ;; Otherwise start terminal REPL (config already loaded)
+        (start-repl :load-config nil
+                    :banner (not no-banner)))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; CLI Application
@@ -196,14 +215,16 @@ and an extensible command system."
                   (make-lisp-option)
                   (make-connect-option)
                   (make-verbose-option)
-                  (make-mcp-server-option))
+                  (make-mcp-server-option)
+                  (make-browser-option))
    :handler #'handle-cli
    :examples '(("Start REPL (auto-detects Lisp):" . "icl")
                ("Evaluate an expression:" . "icl -e '(+ 1 2)'")
                ("Load a file then start REPL:" . "icl -l init.lisp")
                ("Start without config:" . "icl --no-config")
                ("Use a specific Lisp:" . "icl --lisp ccl")
-               ("Connect to existing Slynk:" . "icl --connect localhost:4005"))))
+               ("Connect to existing Slynk:" . "icl --connect localhost:4005")
+               ("Start with browser interface:" . "icl -b"))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Entry Point

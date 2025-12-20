@@ -182,21 +182,33 @@
              (when (and pkg name)
                (send-symbol-info client pkg name))))
 
-          ;; Inspect object
+          ;; Inspect object (with panel ID for multi-inspector support)
           ((string= type "inspect")
-           (let ((form (gethash "form" json)))
+           (let ((form (gethash "form" json))
+                 (panel-id (gethash "panelId" json)))
              (when form
-               (send-inspection client form))))
+               (bt:make-thread
+                (lambda ()
+                  (send-inspection client form panel-id))
+                :name "inspect-handler"))))
 
           ;; Inspector drill-down action
           ((string= type "inspector-action")
-           (let ((index (gethash "index" json)))
+           (let ((index (gethash "index" json))
+                 (panel-id (gethash "panelId" json)))
              (when index
-               (send-inspector-action client index))))
+               (bt:make-thread
+                (lambda ()
+                  (send-inspector-action client index panel-id))
+                :name "inspector-action-handler"))))
 
           ;; Inspector go back
           ((string= type "inspector-pop")
-           (send-inspector-pop client))
+           (let ((panel-id (gethash "panelId" json)))
+             (bt:make-thread
+              (lambda ()
+                (send-inspector-pop client panel-id))
+              :name "inspector-pop-handler")))
 
           ;; Click on symbol in REPL - update all panels
           ;; Run in separate thread to avoid blocking WebSocket handler
@@ -232,8 +244,10 @@
                      ;; Convert nested plist to hash table
                      ((and val (listp val) (keywordp (first val)))
                       (plist-to-hash val))
-                     ;; Convert alist of (name . type) to arrays
-                     ((and val (listp val) (consp (first val)))
+                     ;; Convert alist of (name . type) to arrays for symbols
+                     ;; Alist entries are (name . type) where cdr is an atom
+                     ((and val (listp val) (consp (first val))
+                           (atom (cdr (first val))))
                       (mapcar (lambda (pair)
                                 (list (car pair) (string-downcase (string (cdr pair)))))
                               val))
@@ -260,10 +274,31 @@
       (format *error-output* "~&; Error getting symbol info for ~A:~A: ~A~%"
               package-name symbol-name e))))
 
-(defun send-inspection (client form)
+(defun qualify-symbol-form (form)
+  "If FORM looks like an unqualified symbol, qualify it with its home package.
+   Returns the qualified form string, or the original form if not a simple symbol."
+  (let ((trimmed (string-trim '(#\Space #\Tab) form)))
+    ;; Check if it looks like a simple symbol (no special chars except symbol chars)
+    (if (and (> (length trimmed) 0)
+             (not (find #\( trimmed))      ; not an expression
+             (not (find #\' trimmed))      ; not quoted
+             (not (find #\" trimmed))      ; not a string
+             (not (find #\# trimmed)))     ; not reader macro
+        ;; Try to resolve as a symbol
+        (let ((resolved (find-symbol-home-package trimmed)))
+          (if resolved
+              ;; Return package-qualified form
+              (format nil "~A::~A" (car resolved) (cdr resolved))
+              ;; Not found, return original
+              form))
+        ;; Not a simple symbol, return as-is
+        form)))
+
+(defun send-inspection (client form &optional panel-id)
   "Send inspection data for FORM to CLIENT."
   (handler-case
-      (let ((data (slynk-inspect-object form)))
+      (let* ((qualified-form (qualify-symbol-form form))
+             (data (slynk-inspect-object qualified-form)))
         (when data
           (let* ((raw-content (getf data :content))
                  (content (if (and (listp raw-content) (listp (first raw-content)))
@@ -274,11 +309,12 @@
             (ws-send client "inspection"
                      :title (getf data :title)
                      :action "new"
+                     :panel-id panel-id
                      :entries (or parsed nil)))))
     (error (e)
       (format *error-output* "~&; Error inspecting ~A: ~A~%" form e))))
 
-(defun send-inspector-action (client index)
+(defun send-inspector-action (client index &optional panel-id)
   "Drill down into inspector item at INDEX and send result to CLIENT."
   (handler-case
       (let ((data (slynk-inspector-action index)))
@@ -292,11 +328,12 @@
             (ws-send client "inspection"
                      :title (getf data :title)
                      :action "push"
+                     :panel-id panel-id
                      :entries (or parsed nil)))))
     (error (e)
       (format *error-output* "~&; Error in inspector action ~A: ~A~%" index e))))
 
-(defun send-inspector-pop (client)
+(defun send-inspector-pop (client &optional panel-id)
   "Go back in inspector and send result to CLIENT."
   (handler-case
       (let ((data (slynk-inspector-pop)))
@@ -310,6 +347,7 @@
             (ws-send client "inspection"
                      :title (getf data :title)
                      :action "pop"
+                     :panel-id panel-id
                      :entries (or parsed nil)))))
     (error (e)
       (format *error-output* "~&; Error in inspector pop: ~A~%" e))))
@@ -362,8 +400,9 @@
                             (list (car pair) (string-downcase (string (cdr pair)))))
                           symbols))
             ;; Include symbol info (same format as Symbol list click)
+            ;; Convert plist to hash table for JSON serialization
             (when symbol-info
-              (setf (gethash "symbolInfo" obj) symbol-info))
+              (setf (gethash "symbolInfo" obj) (plist-to-hash symbol-info)))
             (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj)))))
     (error (e)
       (format *error-output* "~&; Error handling symbol click for ~A: ~A~%"
@@ -495,6 +534,8 @@
     .inspector-value { color: #9cdcfe; }
     .inspector-link { color: #4fc1ff; cursor: pointer; text-decoration: underline; }
     .binding-header { color: #dcdcaa; font-weight: bold; }
+    .inspect-link { color: #4fc1ff; cursor: pointer; margin-left: 8px; font-size: 0.9em; }
+    .inspect-link:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -511,6 +552,11 @@
     let selectedSymbol = null;
     let packages = [];
     let symbols = [];
+
+    // Dockview API and inspector management
+    let dockviewApi = null;
+    let inspectorCounter = 0;
+    const inspectorStates = new Map();  // panelId -> {depth, element, header}
 
     ws.onopen = () => {
       console.log('Connected');
@@ -535,7 +581,8 @@
           renderSymbolInfo(msg.data);
           break;
         case 'inspection':
-          renderInspection(msg);
+          console.log('inspection received:', msg, 'panelId:', msg['panel-id']);
+          renderInspection(msg, msg['panel-id']);
           break;
         case 'symbol-clicked':
           handleSymbolClicked(msg);
@@ -563,9 +610,14 @@
         if (symEl) symEl.scrollIntoView({block: 'center'});
       }, 50);
 
-      // Update Inspector panel - use same rendering as Symbol list click
+      // Update Symbol Info panel - use same rendering as Symbol list click
       if (msg.symbolInfo) {
         renderSymbolInfo(msg.symbolInfo);
+      }
+      // Activate the Symbol Info panel to bring it to the surface
+      if (dockviewApi) {
+        const panel = dockviewApi.getPanel('inspector');
+        if (panel) panel.api.setActive();
       }
       // Restore focus to terminal after all updates
       setTimeout(() => { if (terminal) terminal.focus(); }, 100);
@@ -598,14 +650,32 @@
         }).join('');
     }
 
+    // Store current symbol info for inspect links
+    let currentSymbolInfo = null;
+
+    function inspectClass(name) {
+      openInspector(\"(find-class '\" + name + \")\");
+    }
+
+    function inspectFunction(name) {
+      openInspector(\"#'\" + name);
+    }
+
+    function inspectVariable(name) {
+      openInspector(name);
+    }
+
     function renderSymbolInfo(info) {
       const el = document.getElementById('detail-content');
       if (!el || !info) return;
-      let html = `<strong>${info.name || 'Symbol'}</strong>\\n\\n`;
+      currentSymbolInfo = info;
+      const name = info.name || 'Symbol';
+      let html = `<strong>${name}</strong>\\n\\n`;
 
       // Class binding
       if (info.class) {
-        html += `<span class='binding-header'>[Class]</span>\\n`;
+        html += `<span class='binding-header'>[Class]</span>`;
+        html += `<span class='inspect-link' onclick='inspectClass(\"${name}\")'>[Inspect]</span>\\n`;
         if (info.class.superclasses && info.class.superclasses.length > 0) {
           html += `<strong>Superclasses:</strong> ${info.class.superclasses.join(', ')}\\n`;
         }
@@ -618,7 +688,8 @@
       // Function/macro/generic binding
       if (info.function) {
         const typeLabel = {function: 'Function', macro: 'Macro', generic: 'Generic Function'}[info.function.type] || 'Function';
-        html += `<span class='binding-header'>[${typeLabel}]</span>\\n`;
+        html += `<span class='binding-header'>[${typeLabel}]</span>`;
+        html += `<span class='inspect-link' onclick='inspectFunction(\"${name}\")'>[Inspect]</span>\\n`;
         if (info.function.arglist) html += `<strong>Arguments:</strong> ${info.function.arglist}\\n`;
         if (info.function.documentation) html += `<strong>Documentation:</strong>\\n${info.function.documentation}\\n`;
         html += '\\n';
@@ -627,7 +698,8 @@
       // Variable binding
       if (info.variable) {
         const varType = info.variable.constantp ? 'Constant' : 'Variable';
-        html += `<span class='binding-header'>[${varType}]</span>\\n`;
+        html += `<span class='binding-header'>[${varType}]</span>`;
+        html += `<span class='inspect-link' onclick='inspectVariable(\"${name}\")'>[Inspect]</span>\\n`;
         if (info.variable.value) html += `<strong>Value:</strong> ${info.variable.value}\\n`;
         if (info.variable.documentation) html += `<strong>Documentation:</strong>\\n${info.variable.documentation}\\n`;
         html += '\\n';
@@ -647,31 +719,36 @@
       el.innerHTML = html;
     }
 
-    let inspectorDepth = 0;
+    function renderInspection(msg, panelId) {
+      console.log('renderInspection panelId:', panelId, 'states:', inspectorStates);
+      const state = inspectorStates.get(panelId);
+      if (!state) {
+        console.log('No state found for panelId:', panelId);
+        return;
+      }
+      console.log('state found:', state);
 
-    function renderInspection(msg) {
-      const el = document.getElementById('detail-content');
-      const header = document.getElementById('inspector-header');
-      if (!el) return;
+      const { element, header } = state;
+      if (!element) return;
 
       // Track depth for Back button
-      if (msg.action === 'push') inspectorDepth++;
-      else if (msg.action === 'pop') inspectorDepth = Math.max(0, inspectorDepth - 1);
-      else inspectorDepth = 1;
+      if (msg.action === 'push') state.depth++;
+      else if (msg.action === 'pop') state.depth = Math.max(0, state.depth - 1);
+      else state.depth = 1;
 
       // Show/hide Back button
-      if (header) header.style.display = inspectorDepth > 1 ? 'block' : 'none';
+      if (header) header.style.display = state.depth > 1 ? 'block' : 'none';
 
       let html = `<strong>${msg.title || 'Object'}</strong>\\n\\n`;
       (msg.entries || []).forEach(([label, value, action]) => {
         const escapedValue = String(value).replace(/</g, '&lt;').replace(/>/g, '&gt;');
         if (action !== null) {
-          html += `<span class='inspector-label'>${label}: </span><span class='inspector-link' onclick='inspectAction(${action})'>${escapedValue}</span>\\n`;
+          html += `<span class='inspector-label'>${label}: </span><span class='inspector-link' onclick='inspectAction(${action}, \"${panelId}\")'>${escapedValue}</span>\\n`;
         } else {
           html += `<span class='inspector-label'>${label}: </span><span class='inspector-value'>${escapedValue}</span>\\n`;
         }
       });
-      el.innerHTML = html;
+      element.innerHTML = html;
     }
 
     function selectPackage(pkg) {
@@ -685,14 +762,36 @@
       selectedSymbol = name;
       renderSymbols(document.getElementById('symbol-filter')?.value || '');
       ws.send(JSON.stringify({type: 'get-symbol-info', package: selectedPackage, name: name}));
+      // Activate the Symbol Info panel to bring it to the surface
+      if (dockviewApi) {
+        const panel = dockviewApi.getPanel('inspector');
+        if (panel) panel.api.setActive();
+      }
     }
 
-    function inspectAction(action) {
-      ws.send(JSON.stringify({type: 'inspector-action', index: action}));
+    function inspectAction(action, panelId) {
+      ws.send(JSON.stringify({type: 'inspector-action', index: action, panelId: panelId}));
     }
 
-    function inspectBack() {
-      ws.send(JSON.stringify({type: 'inspector-pop'}));
+    function inspectBack(panelId) {
+      ws.send(JSON.stringify({type: 'inspector-pop', panelId: panelId}));
+    }
+
+    function openInspector(form) {
+      const panelId = 'inspector-' + (++inspectorCounter);
+      console.log('openInspector:', form, panelId);
+      // Send inspect request to server
+      ws.send(JSON.stringify({type: 'inspect', form: form, panelId: panelId}));
+      // Create new inspector panel in Dockview
+      if (dockviewApi) {
+        dockviewApi.addPanel({
+          id: panelId,
+          component: 'dynamic-inspector',
+          title: 'Inspector',
+          params: { panelId: panelId },
+          position: { referencePanel: 'inspector', direction: 'within' }
+        });
+      }
     }
 
     // Lisp symbol characters: alphanumeric, -, *, +, /, <, >, =, ?, !, $, %, &, :
@@ -770,15 +869,47 @@
         this._element = document.createElement('div');
         this._element.className = 'panel';
         this._element.innerHTML = `
-          <div class='panel-header' id='inspector-header' style='display:none;'>
-            <button onclick='inspectBack()' style='padding:2px 8px;background:#3d3d3d;border:1px solid #4d4d4d;color:#d4d4d4;border-radius:3px;cursor:pointer;'>← Back</button>
-          </div>
           <div class='panel-content detail-content' id='detail-content'>
-            Click a symbol in the terminal to inspect it.
+            Click a symbol to see its bindings.
           </div>`;
       }
       get element() { return this._element; }
       init(params) {}
+    }
+
+    class DynamicInspectorPanel {
+      constructor() {
+        this._element = document.createElement('div');
+        this._element.className = 'panel';
+        this._panelId = null;
+      }
+      get element() { return this._element; }
+      init(params) {
+        this._panelId = params.params?.panelId;
+        const headerId = 'header-' + this._panelId;
+        const contentId = 'content-' + this._panelId;
+        this._element.innerHTML = `
+          <div class='panel-header' id='${headerId}' style='display:none;'>
+            <button onclick='inspectBack(\"${this._panelId}\")' style='padding:2px 8px;background:#3d3d3d;border:1px solid #4d4d4d;color:#d4d4d4;border-radius:3px;cursor:pointer;'>← Back</button>
+          </div>
+          <div class='panel-content detail-content' id='${contentId}'>
+            Loading...
+          </div>`;
+        // Register this panel's state - use querySelector on this element since it's not in DOM yet
+        const contentEl = this._element.querySelector('#' + contentId);
+        const headerEl = this._element.querySelector('#' + headerId);
+        console.log('DynamicInspectorPanel init:', this._panelId, 'contentEl:', contentEl, 'headerEl:', headerEl);
+        inspectorStates.set(this._panelId, {
+          depth: 0,
+          element: contentEl,
+          header: headerEl
+        });
+      }
+      dispose() {
+        if (this._panelId) {
+          inspectorStates.delete(this._panelId);
+        }
+      }
     }
 
     class TerminalPanel {
@@ -893,16 +1024,20 @@
           case 'packages': return new PackagesPanel();
           case 'symbols': return new SymbolsPanel();
           case 'inspector': return new InspectorPanel();
+          case 'dynamic-inspector': return new DynamicInspectorPanel();
           case 'terminal': return new TerminalPanel();
         }
       }
     });
 
-    // Layout: Packages/Symbols/Inspector side by side at top (1/5 height), REPL Console below (4/5)
+    // Store API globally for dynamic panel creation
+    dockviewApi = api;
+
+    // Layout: Packages/Symbols/Symbol Info side by side at top (1/5 height), REPL Console below (4/5)
     api.addPanel({ id: 'terminal', component: 'terminal', title: 'REPL Console' });
     api.addPanel({ id: 'packages', component: 'packages', title: 'Packages', position: { referencePanel: 'terminal', direction: 'above' } });
     api.addPanel({ id: 'symbols', component: 'symbols', title: 'Symbols', position: { referencePanel: 'packages', direction: 'right' } });
-    api.addPanel({ id: 'inspector', component: 'inspector', title: 'Inspector', position: { referencePanel: 'symbols', direction: 'right' } });
+    api.addPanel({ id: 'inspector', component: 'inspector', title: 'Symbol Info', position: { referencePanel: 'symbols', direction: 'right' } });
 
     // Set the top row to 20% height (1/5)
     setTimeout(() => {
