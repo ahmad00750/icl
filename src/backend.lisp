@@ -250,33 +250,63 @@
                     (when asdf-file (uiop:unix-namestring asdf-file))
                     (uiop:unix-namestring slynk-dir)
                     port)
-            ;; Try Quicklisp
+            ;; Try ASDF/ocicl, then Quicklisp
             (format nil "(progn
-  (unless (find-package :quicklisp)
-    (let ((ql-init (merge-pathnames \"quicklisp/setup.lisp\" (user-homedir-pathname))))
-      (when (probe-file ql-init)
-        (load ql-init))))
-  (if (find-package :quicklisp)
-      (progn
-        ;; Suppress warnings during Slynk loading
-        (let ((*error-output* (make-broadcast-stream))
-              (*standard-output* (make-broadcast-stream)))
-          (handler-bind ((warning #'muffle-warning))
-            (funcall (read-from-string \"ql:quickload\") :slynk :silent t)))
-        ;; Configure worker thread bindings so *debug-io* output goes through stdout
-        (let ((bindings-var (find-symbol \"*DEFAULT-WORKER-THREAD-BINDINGS*\" :slynk)))
-          (when bindings-var
-            (let ((io (make-two-way-stream *standard-input* *standard-output*)))
-              (setf (symbol-value bindings-var)
-                    (list (cons '*debug-io* io)
-                          (cons '*query-io* io)
-                          (cons '*terminal-io* io))))))
-        ;; Suppress Slynk startup message
-        (let ((*standard-output* (make-broadcast-stream)))
-          (funcall (read-from-string \"slynk:create-server\")
-                   :port ~D :dont-close t)))
-      (error \"Cannot find Slynk. Install SLY or Quicklisp.\")))"
-                    port)))))
+  (flet ((load-slynk-via-asdf ()
+           (handler-case
+               (progn
+                 (unless (find-package :asdf)
+                   (handler-case (require :asdf)
+                     (error () nil)))
+                 (when (find-package :asdf)
+                   ;; Suppress warnings during Slynk loading
+                   (let ((*error-output* (make-broadcast-stream))
+                         (*standard-output* (make-broadcast-stream)))
+                     (handler-bind ((warning #'muffle-warning))
+                       (funcall (read-from-string \"asdf:load-system\") :slynk)))
+                   t))
+             (error () nil))))
+    (cond
+      ;; First try ASDF (supports ocicl if configured in user init)
+      ((load-slynk-via-asdf)
+       (let ((bindings-var (find-symbol \"*DEFAULT-WORKER-THREAD-BINDINGS*\" :slynk)))
+         (when bindings-var
+           (let ((io (make-two-way-stream *standard-input* *standard-output*)))
+             (setf (symbol-value bindings-var)
+                   (list (cons '*debug-io* io)
+                         (cons '*query-io* io)
+                         (cons '*terminal-io* io))))))
+       ;; Suppress Slynk startup message
+       (let ((*standard-output* (make-broadcast-stream)))
+         (funcall (read-from-string \"slynk:create-server\")
+                  :port ~D :dont-close t)))
+      ;; Then try Quicklisp if available
+      (t
+       (unless (find-package :quicklisp)
+         (let ((ql-init (merge-pathnames \"quicklisp/setup.lisp\" (user-homedir-pathname))))
+           (when (probe-file ql-init)
+             (load ql-init))))
+       (if (find-package :quicklisp)
+           (progn
+             ;; Suppress warnings during Slynk loading
+             (let ((*error-output* (make-broadcast-stream))
+                   (*standard-output* (make-broadcast-stream)))
+               (handler-bind ((warning #'muffle-warning))
+                 (funcall (read-from-string \"ql:quickload\") :slynk :silent t)))
+             ;; Configure worker thread bindings so *debug-io* output goes through stdout
+             (let ((bindings-var (find-symbol \"*DEFAULT-WORKER-THREAD-BINDINGS*\" :slynk)))
+               (when bindings-var
+                 (let ((io (make-two-way-stream *standard-input* *standard-output*)))
+                   (setf (symbol-value bindings-var)
+                         (list (cons '*debug-io* io)
+                               (cons '*query-io* io)
+                               (cons '*terminal-io* io))))))
+             ;; Suppress Slynk startup message
+             (let ((*standard-output* (make-broadcast-stream)))
+               (funcall (read-from-string \"slynk:create-server\")
+                        :port ~D :dont-close t)))
+           (error \"Cannot find Slynk. Install SLY or Quicklisp.\")))))"
+                    port port)))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Process Management

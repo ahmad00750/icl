@@ -75,7 +75,8 @@
    (format nil
            "(let ((sym (find-symbol ~S (find-package ~S))))
               (when sym
-                (let ((result (list :name (symbol-name sym))))
+                (let ((result (list :name (symbol-name sym)
+                                    :package (package-name (symbol-package sym)))))
                   ;; Check for class binding
                   (when (find-class sym nil)
                     (let ((class (find-class sym)))
@@ -193,11 +194,12 @@
           ;; Inspect object (with panel ID for multi-inspector support)
           ((string= type "inspect")
            (let ((form (gethash "form" json))
-                 (panel-id (gethash "panelId" json)))
+                 (panel-id (gethash "panelId" json))
+                 (pkg (gethash "package" json)))
              (when form
                (bt:make-thread
                 (lambda ()
-                  (send-inspection client form panel-id))
+                  (send-inspection client form panel-id pkg))
                 :name "inspect-handler"))))
 
           ;; Inspector drill-down action
@@ -301,8 +303,9 @@
       (format *error-output* "~&; Error getting symbol info for ~A:~A: ~A~%"
               package-name symbol-name e))))
 
-(defun qualify-symbol-form (form)
+(defun qualify-symbol-form (form &optional package-name)
   "If FORM looks like an unqualified symbol, qualify it with its home package.
+   If PACKAGE-NAME is provided, use it for qualification.
    Returns the qualified form string, or the original form if not a simple symbol."
   (let ((trimmed (string-trim '(#\Space #\Tab) form)))
     ;; Check if it looks like a simple symbol (no special chars except symbol chars)
@@ -311,33 +314,41 @@
              (not (find #\' trimmed))      ; not quoted
              (not (find #\" trimmed))      ; not a string
              (not (find #\# trimmed)))     ; not reader macro
-        ;; Try to resolve as a symbol
-        (let ((resolved (find-symbol-home-package trimmed)))
-          (if resolved
-              ;; Return package-qualified form
-              (format nil "~A::~A" (car resolved) (cdr resolved))
-              ;; Not found, return original
-              form))
+        (if package-name
+            (format nil "~A::~A" package-name trimmed)
+            ;; Try to resolve as a symbol
+            (let ((resolved (find-symbol-home-package trimmed)))
+              (if resolved
+                  ;; Return package-qualified form
+                  (format nil "~A::~A" (car resolved) (cdr resolved))
+                  ;; Not found, return original
+                  form)))
         ;; Not a simple symbol, return as-is
         form)))
 
-(defun send-inspection (client form &optional panel-id)
+(defun send-inspection (client form &optional panel-id package-name)
   "Send inspection data for FORM to CLIENT."
   (handler-case
-      (let* ((qualified-form (qualify-symbol-form form))
-             (data (slynk-inspect-object qualified-form)))
-        (when data
-          (let* ((raw-content (getf data :content))
-                 (content (if (and (listp raw-content) (listp (first raw-content)))
-                              (first raw-content)
-                              raw-content))
-                 (parsed (when (listp content)
-                           (parse-inspector-content content))))
-            (ws-send client "inspection"
-                     :title (getf data :title)
-                     :action "new"
-                     :panel-id panel-id
-                     :entries (or parsed nil)))))
+      (let* ((qualified-form (qualify-symbol-form form package-name)))
+        (multiple-value-bind (data err) (slynk-inspect-object qualified-form)
+          (if data
+              (let* ((raw-content (getf data :content))
+                     (content (if (and (listp raw-content) (listp (first raw-content)))
+                                  (first raw-content)
+                                  raw-content))
+                     (parsed (when (listp content)
+                               (parse-inspector-content content))))
+                (ws-send client "inspection"
+                         :title (getf data :title)
+                         :action "new"
+                         :panel-id panel-id
+                         :entries (or parsed nil)))
+              (let ((msg (or err "Inspector returned no data")))
+                (ws-send client "inspection"
+                         :title "Inspector unavailable"
+                         :action "new"
+                         :panel-id panel-id
+                         :entries (list (list "Error" msg nil)))))))
     (error (e)
       (format *error-output* "~&; Error inspecting ~A: ~A~%" form e))))
 
@@ -621,6 +632,7 @@
     let dockviewApi = null;
     let inspectorCounter = 0;
     const inspectorStates = new Map();  // panelId -> {depth, element, header}
+    const pendingInspections = new Map();  // panelId -> last inspection msg
 
     ws.onopen = () => {
       console.log('Connected');
@@ -781,16 +793,19 @@
     // Store current symbol info for inspect links
     let currentSymbolInfo = null;
 
-    function inspectClass(name) {
-      openInspector(\"(find-class '\" + name + \")\");
+    function inspectClass(name, pkg) {
+      const prefix = pkg ? (pkg + \"::\") : \"\";
+      openInspector(\"(find-class '\" + prefix + name + \")\", pkg);
     }
 
-    function inspectFunction(name) {
-      openInspector(\"#'\" + name);
+    function inspectFunction(name, pkg) {
+      const prefix = pkg ? (pkg + \"::\") : \"\";
+      openInspector(\"#'\" + prefix + name, pkg);
     }
 
-    function inspectVariable(name) {
-      openInspector(name);
+    function inspectVariable(name, pkg) {
+      const prefix = pkg ? (pkg + \"::\") : \"\";
+      openInspector(prefix + name, pkg);
     }
 
     function renderSymbolInfo(info) {
@@ -798,12 +813,14 @@
       if (!el || !info) return;
       currentSymbolInfo = info;
       const name = info.name || 'Symbol';
+      const pkg = info.package || selectedPackage || null;
+      const pkgStr = pkg || '';
       let html = `<strong>${name}</strong>\\n\\n`;
 
       // Class binding
       if (info.class) {
         html += `<span class='binding-header'>[Class]</span>`;
-        html += `<span class='inspect-link' onclick='inspectClass(\"${name}\")'>[Inspect]</span>\\n`;
+        html += `<span class='inspect-link' onclick='inspectClass(\"${name}\", \"${pkgStr}\")'>[Inspect]</span>\\n`;
         if (info.class.superclasses && info.class.superclasses.length > 0) {
           html += `<strong>Superclasses:</strong> ${info.class.superclasses.join(', ')}\\n`;
         }
@@ -817,7 +834,7 @@
       if (info.function) {
         const typeLabel = {function: 'Function', macro: 'Macro', generic: 'Generic Function'}[info.function.type] || 'Function';
         html += `<span class='binding-header'>[${typeLabel}]</span>`;
-        html += `<span class='inspect-link' onclick='inspectFunction(\"${name}\")'>[Inspect]</span>\\n`;
+        html += `<span class='inspect-link' onclick='inspectFunction(\"${name}\", \"${pkgStr}\")'>[Inspect]</span>\\n`;
         if (info.function.arglist) html += `<strong>Arguments:</strong> ${info.function.arglist}\\n`;
         if (info.function.documentation) html += `<strong>Documentation:</strong>\\n${info.function.documentation}\\n`;
         html += '\\n';
@@ -827,7 +844,7 @@
       if (info.variable) {
         const varType = info.variable.constantp ? 'Constant' : 'Variable';
         html += `<span class='binding-header'>[${varType}]</span>`;
-        html += `<span class='inspect-link' onclick='inspectVariable(\"${name}\")'>[Inspect]</span>\\n`;
+        html += `<span class='inspect-link' onclick='inspectVariable(\"${name}\", \"${pkgStr}\")'>[Inspect]</span>\\n`;
         if (info.variable.value) html += `<strong>Value:</strong> ${info.variable.value}\\n`;
         if (info.variable.documentation) html += `<strong>Documentation:</strong>\\n${info.variable.documentation}\\n`;
         html += '\\n';
@@ -851,7 +868,8 @@
       console.log('renderInspection panelId:', panelId, 'states:', inspectorStates);
       const state = inspectorStates.get(panelId);
       if (!state) {
-        console.log('No state found for panelId:', panelId);
+        console.log('No state found for panelId:', panelId, 'stashing pending inspection');
+        pendingInspections.set(panelId, msg);
         return;
       }
       console.log('state found:', state);
@@ -905,11 +923,9 @@
       ws.send(JSON.stringify({type: 'inspector-pop', panelId: panelId}));
     }
 
-    function openInspector(form) {
+    function openInspector(form, pkg) {
       const panelId = 'inspector-' + (++inspectorCounter);
       console.log('openInspector:', form, panelId);
-      // Send inspect request to server
-      ws.send(JSON.stringify({type: 'inspect', form: form, panelId: panelId}));
       // Create new inspector panel in Dockview
       if (dockviewApi) {
         dockviewApi.addPanel({
@@ -920,6 +936,8 @@
           position: { referencePanel: 'inspector', direction: 'within' }
         });
       }
+      // Send inspect request to server after panel creation to reduce races
+      ws.send(JSON.stringify({type: 'inspect', form: form, panelId: panelId, package: pkg}));
     }
 
     // Lisp symbol characters: alphanumeric, -, *, +, /, <, >, =, ?, !, $, %, &, :
@@ -1032,6 +1050,12 @@
           element: contentEl,
           header: headerEl
         });
+        // Apply any inspection that arrived before this panel initialized.
+        const pending = pendingInspections.get(this._panelId);
+        if (pending) {
+          pendingInspections.delete(this._panelId);
+          renderInspection(pending, this._panelId);
+        }
       }
       dispose() {
         if (this._panelId) {

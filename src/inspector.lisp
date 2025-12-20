@@ -29,17 +29,19 @@
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
 (defun slynk-inspect-object (form-string)
-  "Inspect an object via Slynk. Returns inspection data.
+  "Inspect an object via Slynk. Returns (values data error-string).
    Uses backend-eval with slynk:init-inspector for thread-safe operation."
   (unless *slynk-connected-p*
-    (return-from slynk-inspect-object nil))
+    (return-from slynk-inspect-object (values nil "Not connected to backend server")))
   (handler-case
       (let* ((code (format nil "(slynk:init-inspector ~S)" form-string))
              (results (backend-eval code))
-             (result-string (first results)))
-        (when result-string
-          (ignore-errors (read-from-string result-string))))
-    (error () nil)))
+             (result-string (first results))
+             (data (when result-string
+                     (ignore-errors (read-from-string result-string)))))
+        (values data nil))
+    (error (e)
+      (values nil (princ-to-string e)))))
 
 (defun slynk-inspector-action (index)
   "Perform inspector action (drill down) at INDEX."
@@ -335,4 +337,3 @@
                (inspector-move :down)))))))
     ;; Clear inspector on exit
     (clear-inspector)))
-
