@@ -70,47 +70,51 @@
            package-name)))
 
 (defun get-symbol-info (symbol-name package-name)
-  "Get information about a symbol."
+  "Get information about a symbol. Returns all bindings (class, function, variable)."
   (browser-query
    (format nil
            "(let ((sym (find-symbol ~S (find-package ~S))))
               (when sym
-                (cond
-                  ((find-class sym nil)
-                   (let ((class (find-class sym)))
-                     (list :type :class
-                           :name sym
-                           :superclasses (ignore-errors
-                                           (mapcar #'class-name
-                                                   (funcall (find-symbol \"CLASS-DIRECT-SUPERCLASSES\"
+                (let ((result (list :name (symbol-name sym))))
+                  ;; Check for class binding
+                  (when (find-class sym nil)
+                    (let ((class (find-class sym)))
+                      (setf (getf result :class)
+                            (list :superclasses (ignore-errors
+                                                  (mapcar #'class-name
+                                                          (funcall (find-symbol \"CLASS-DIRECT-SUPERCLASSES\"
+                                                                                (or (find-package :closer-mop)
+                                                                                    (find-package :sb-mop)))
+                                                                   class)))
+                                  :slots (ignore-errors
+                                           (mapcar (lambda (s)
+                                                     (funcall (find-symbol \"SLOT-DEFINITION-NAME\"
+                                                                           (or (find-package :closer-mop)
+                                                                               (find-package :sb-mop)))
+                                                              s))
+                                                   (funcall (find-symbol \"CLASS-DIRECT-SLOTS\"
                                                                          (or (find-package :closer-mop)
                                                                              (find-package :sb-mop)))
-                                                            class)))
-                           :slots (ignore-errors
-                                    (mapcar (lambda (s)
-                                              (funcall (find-symbol \"SLOT-DEFINITION-NAME\"
-                                                                    (or (find-package :closer-mop)
-                                                                        (find-package :sb-mop)))
-                                                       s))
-                                            (funcall (find-symbol \"CLASS-DIRECT-SLOTS\"
-                                                                  (or (find-package :closer-mop)
-                                                                      (find-package :sb-mop)))
-                                                     class))))))
-                  ((fboundp sym)
-                   (list :type (cond
-                                 ((typep (fdefinition sym) 'generic-function) :generic)
-                                 ((macro-function sym) :macro)
-                                 (t :function))
-                         :name sym
-                         :arglist (ignore-errors (slynk-backend:arglist sym))
-                         :documentation (documentation sym 'function)))
-                  ((boundp sym)
-                   (list :type :variable
-                         :name sym
-                         :value (prin1-to-string (symbol-value sym))
-                         :documentation (documentation sym 'variable)
-                         :constantp (constantp sym)))
-                  (t (list :type :symbol :name sym)))))"
+                                                            class)))))))
+                  ;; Check for function/macro/generic binding
+                  (when (fboundp sym)
+                    (setf (getf result :function)
+                          (list :type (cond
+                                        ((typep (fdefinition sym) 'generic-function) :generic)
+                                        ((macro-function sym) :macro)
+                                        (t :function))
+                                :arglist (ignore-errors (slynk-backend:arglist sym))
+                                :documentation (documentation sym 'function))))
+                  ;; Check for variable binding
+                  (when (boundp sym)
+                    (setf (getf result :variable)
+                          (list :value (prin1-to-string (symbol-value sym))
+                                :documentation (documentation sym 'variable)
+                                :constantp (constantp sym))))
+                  ;; Check for special operator
+                  (when (special-operator-p sym)
+                    (setf (getf result :special-operator) t))
+                  result)))"
            symbol-name package-name)))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
@@ -192,7 +196,17 @@
 
           ;; Inspector go back
           ((string= type "inspector-pop")
-           (send-inspector-pop client)))))))
+           (send-inspector-pop client))
+
+          ;; Click on symbol in REPL - update all panels
+          ;; Run in separate thread to avoid blocking WebSocket handler
+          ((string= type "symbol-click")
+           (let ((symbol-string (gethash "symbol" json)))
+             (when symbol-string
+               (bt:make-thread
+                (lambda ()
+                  (send-symbol-click-response client symbol-string))
+                :name "symbol-click-handler")))))))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; WebSocket Send Helpers
@@ -300,6 +314,61 @@
     (error (e)
       (format *error-output* "~&; Error in inspector pop: ~A~%" e))))
 
+(defun find-symbol-home-package (symbol-string)
+  "Find a symbol and return (package-name . symbol-name) for its HOME package.
+   For unqualified symbols, finds the symbol and returns its symbol-package."
+  (browser-query
+   (format nil
+           "(let* ((str ~S)
+                   (colon (position #\\: str)))
+              (if colon
+                  ;; Qualified - parse and find
+                  (let* ((pkg-name (subseq str 0 colon))
+                         (sym-start (position-if-not (lambda (c) (char= c #\\:)) str :start colon))
+                         (sym-name (if sym-start (subseq str sym-start) \"\"))
+                         (pkg (find-package (string-upcase pkg-name))))
+                    (when pkg
+                      (cons (package-name pkg) (string-upcase sym-name))))
+                  ;; Unqualified - find in current package and get home package
+                  (let ((sym (find-symbol (string-upcase str))))
+                    (when sym
+                      (let ((home-pkg (symbol-package sym)))
+                        (cons (if home-pkg (package-name home-pkg) \"COMMON-LISP-USER\")
+                              (symbol-name sym)))))))"
+           symbol-string)))
+
+(defun send-symbol-click-response (client symbol-string)
+  "Handle a click on a symbol in the REPL.
+   Updates all three panels: Packages, Symbols, and Inspector."
+  (handler-case
+      (let* ((parsed (find-symbol-home-package symbol-string))
+             (pkg-name (if parsed (car parsed) nil))
+             (sym-name (if parsed (cdr parsed) (string-upcase symbol-string))))
+        (unless pkg-name
+          ;; Symbol not found, just inspect it
+          (send-inspection client symbol-string)
+          (return-from send-symbol-click-response))
+        ;; Send combined response with all panel data
+        ;; Use get-symbol-info for consistent display with Symbol list clicks
+        (let* ((symbols (get-package-symbols pkg-name))
+               (symbol-info (get-symbol-info sym-name pkg-name)))
+          ;; Send symbol-click response with all data
+          (let ((obj (make-hash-table :test 'equal)))
+            (setf (gethash "type" obj) "symbol-clicked")
+            (setf (gethash "package" obj) pkg-name)
+            (setf (gethash "symbol" obj) sym-name)
+            (setf (gethash "symbols" obj)
+                  (mapcar (lambda (pair)
+                            (list (car pair) (string-downcase (string (cdr pair)))))
+                          symbols))
+            ;; Include symbol info (same format as Symbol list click)
+            (when symbol-info
+              (setf (gethash "symbolInfo" obj) symbol-info))
+            (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj)))))
+    (error (e)
+      (format *error-output* "~&; Error handling symbol click for ~A: ~A~%"
+              symbol-string e))))
+
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; REPL I/O Streams
 ;;; ─────────────────────────────────────────────────────────────────────────────
@@ -374,7 +443,7 @@
   (let ((text (bt:with-lock-held ((stream-lock stream))
                 (prog1 (get-output-stream-string (buffer-of stream))
                   (setf (buffer-of stream) (make-string-output-stream))))))
-    (when (plusp (length text))
+    (when (and (plusp (length text)) *repl-resource*)
       ;; Send to all connected clients
       (dolist (client (hunchensocket:clients *repl-resource*))
         (ws-send client "output" :data text)))))
@@ -414,7 +483,6 @@
     .list-item { padding: 4px 8px; cursor: pointer; }
     .list-item:hover { background: #2d2d2d; }
     .list-item.selected { background: #094771; }
-    .badge { color: #888; margin-right: 4px; }
     .terminal-container { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
     .terminal-container .xterm { height: 100%%; width: 100%%; }
     .terminal-container .xterm-screen { height: 100%%; }
@@ -426,6 +494,7 @@
     .inspector-label { color: #888; }
     .inspector-value { color: #9cdcfe; }
     .inspector-link { color: #4fc1ff; cursor: pointer; text-decoration: underline; }
+    .binding-header { color: #dcdcaa; font-weight: bold; }
   </style>
 </head>
 <body>
@@ -439,6 +508,7 @@
     const ws = new WebSocket('ws://' + location.host + '/ws/~A');
     let terminal, fitAddon;
     let selectedPackage = null;
+    let selectedSymbol = null;
     let packages = [];
     let symbols = [];
 
@@ -467,8 +537,39 @@
         case 'inspection':
           renderInspection(msg);
           break;
+        case 'symbol-clicked':
+          handleSymbolClicked(msg);
+          break;
       }
     };
+
+    function handleSymbolClicked(msg) {
+      // Update Packages panel - select the package
+      selectedPackage = msg.package;
+      renderPackages();
+      // Scroll package into view
+      setTimeout(() => {
+        const pkgEl = document.querySelector('#package-list .selected');
+        if (pkgEl) pkgEl.scrollIntoView({block: 'center'});
+      }, 50);
+
+      // Update Symbols panel - set symbols and select the symbol
+      symbols = msg.symbols || [];
+      selectedSymbol = msg.symbol;
+      renderSymbols();
+      // Scroll symbol into view
+      setTimeout(() => {
+        const symEl = document.querySelector('#symbol-list .selected');
+        if (symEl) symEl.scrollIntoView({block: 'center'});
+      }, 50);
+
+      // Update Inspector panel - use same rendering as Symbol list click
+      if (msg.symbolInfo) {
+        renderSymbolInfo(msg.symbolInfo);
+      }
+      // Restore focus to terminal after all updates
+      setTimeout(() => { if (terminal) terminal.focus(); }, 100);
+    }
 
     // Panel rendering functions
     function renderPackages(filter = '') {
@@ -491,20 +592,58 @@
       el.innerHTML = (symbols || [])
         .filter(s => !f || s[0].toLowerCase().includes(f))
         .map(s => {
-          const [name, type] = s;
-          const badge = {class:'C',generic:'G',function:'F',macro:'M',variable:'V'}[type] || 'S';
-          return `<div class='list-item' onclick='selectSymbol(\"${name.replace(/'/g, \"\\\\'\")}\")'>` +
-                 `<span class='badge'>[${badge}]</span>${name}</div>`;
+          const [name] = s;
+          const selected = (selectedSymbol && name.toUpperCase() === selectedSymbol.toUpperCase()) ? 'selected' : '';
+          return `<div class='list-item ${selected}' onclick='selectSymbol(\"${name.replace(/'/g, \"\\\\'\")}\")'>${name}</div>`;
         }).join('');
     }
 
     function renderSymbolInfo(info) {
       const el = document.getElementById('detail-content');
       if (!el || !info) return;
-      let html = `<strong>${info.type || 'Symbol'}:</strong> ${info.name || ''}\\n\\n`;
-      if (info.arglist) html += `<strong>Arguments:</strong> ${info.arglist}\\n\\n`;
-      if (info.value) html += `<strong>Value:</strong> ${info.value}\\n\\n`;
-      if (info.documentation) html += `<strong>Documentation:</strong>\\n${info.documentation}\\n`;
+      let html = `<strong>${info.name || 'Symbol'}</strong>\\n\\n`;
+
+      // Class binding
+      if (info.class) {
+        html += `<span class='binding-header'>[Class]</span>\\n`;
+        if (info.class.superclasses && info.class.superclasses.length > 0) {
+          html += `<strong>Superclasses:</strong> ${info.class.superclasses.join(', ')}\\n`;
+        }
+        if (info.class.slots && info.class.slots.length > 0) {
+          html += `<strong>Slots:</strong> ${info.class.slots.join(', ')}\\n`;
+        }
+        html += '\\n';
+      }
+
+      // Function/macro/generic binding
+      if (info.function) {
+        const typeLabel = {function: 'Function', macro: 'Macro', generic: 'Generic Function'}[info.function.type] || 'Function';
+        html += `<span class='binding-header'>[${typeLabel}]</span>\\n`;
+        if (info.function.arglist) html += `<strong>Arguments:</strong> ${info.function.arglist}\\n`;
+        if (info.function.documentation) html += `<strong>Documentation:</strong>\\n${info.function.documentation}\\n`;
+        html += '\\n';
+      }
+
+      // Variable binding
+      if (info.variable) {
+        const varType = info.variable.constantp ? 'Constant' : 'Variable';
+        html += `<span class='binding-header'>[${varType}]</span>\\n`;
+        if (info.variable.value) html += `<strong>Value:</strong> ${info.variable.value}\\n`;
+        if (info.variable.documentation) html += `<strong>Documentation:</strong>\\n${info.variable.documentation}\\n`;
+        html += '\\n';
+      }
+
+      // Special operator
+      if (info['special-operator']) {
+        html += `<span class='binding-header'>[Special Operator]</span>\\n`;
+        html += 'Built-in special form\\n\\n';
+      }
+
+      // If no bindings found
+      if (!info.class && !info.function && !info.variable && !info['special-operator']) {
+        html += '<em>Unbound symbol</em>\\n';
+      }
+
       el.innerHTML = html;
     }
 
@@ -537,11 +676,14 @@
 
     function selectPackage(pkg) {
       selectedPackage = pkg;
+      selectedSymbol = null;  // Clear symbol selection when package changes
       renderPackages(document.getElementById('package-filter')?.value || '');
       ws.send(JSON.stringify({type: 'get-symbols', package: pkg}));
     }
 
     function selectSymbol(name) {
+      selectedSymbol = name;
+      renderSymbols(document.getElementById('symbol-filter')?.value || '');
       ws.send(JSON.stringify({type: 'get-symbol-info', package: selectedPackage, name: name}));
     }
 
@@ -632,7 +774,7 @@
             <button onclick='inspectBack()' style='padding:2px 8px;background:#3d3d3d;border:1px solid #4d4d4d;color:#d4d4d4;border-radius:3px;cursor:pointer;'>← Back</button>
           </div>
           <div class='panel-content detail-content' id='detail-content'>
-            Ctrl+click a symbol in the terminal to inspect it.
+            Click a symbol in the terminal to inspect it.
           </div>`;
       }
       get element() { return this._element; }
@@ -669,11 +811,11 @@
           let hoveredSymbol = null;
 
           terminal.element.addEventListener('mousedown', (e) => {
-            // If we have a symbol under cursor from hover, inspect it on click
+            // If we have a symbol under cursor from hover, update all panels
             if (hoveredSymbol) {
               e.preventDefault();
               e.stopPropagation();
-              ws.send(JSON.stringify({type: 'inspect', form: hoveredSymbol}));
+              ws.send(JSON.stringify({type: 'symbol-click', symbol: hoveredSymbol}));
               setTimeout(() => terminal.focus(), 10);
             }
           }, { capture: true });
@@ -920,6 +1062,11 @@
 (defun stop-browser ()
   "Stop the Dockview browser."
   (when *browser-acceptor*
+    ;; Signal the browser-repl thread to exit by sending nil (EOF) to input queue
+    (when *repl-resource*
+      (ignore-errors
+        (chanl:send (input-queue *repl-resource*) nil)))
+    ;; Stop the HTTP server
     (ignore-errors (hunchentoot:stop *browser-acceptor*))
     (setf *browser-acceptor* nil)
     (setf *repl-resource* nil)

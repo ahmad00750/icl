@@ -1699,7 +1699,7 @@ Example: ,browse           - Start browser and open in web browser
      ;; Self-test mode for CI
      (handler-case
          (let ((url (start-browser :open-browser nil)))
-           (format t "~&Browser started at ~A~%" url)
+           (format t "Browser started at ~A~%" url)
            (sleep 1)
            (let ((result (ignore-errors
                            (uiop:run-program (list "curl" "-s" url)
@@ -1727,6 +1727,6 @@ Example: ,browse           - Start browser and open in web browser
     (t
      (handler-case
          (let ((url (start-browser :open-browser t)))
-           (format t "~&Browser started at ~A~%" url))
+           (format t "Browser started at ~A~%" url))
        (error (e)
          (format *error-output* "~&Failed to start browser: ~A~%" e))))))
