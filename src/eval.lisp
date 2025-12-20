@@ -45,6 +45,17 @@
       (error (e)
         (format *error-output* "~&;; Warning: after-eval hook error: ~A~%" e)))))
 
+(defun sync-package-context-from-backend ()
+  "Query backend for current package and update prompt context."
+  (when *slynk-connected-p*
+    (ignore-errors
+      (let ((pkg-name (slynk-current-package)))
+        (when (and pkg-name (stringp pkg-name))
+          (setf *icl-package-name* (string-upcase pkg-name))
+          (let ((pkg (find-package *icl-package-name*)))
+            (when pkg
+              (setf *icl-package* pkg))))))))
+
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Safe Evaluation
 ;;; ─────────────────────────────────────────────────────────────────────────────
@@ -108,6 +119,8 @@
             (when form
               (update-result-history form values)
               (run-after-eval-hooks form values)))
+          ;; Always sync prompt package from backend after successful eval.
+          (sync-package-context-from-backend)
           ;; Record for MCP history access
           (let ((result-str (cond
                               ((null result) "")
@@ -142,10 +155,12 @@
             (refresh-browser-lists)))
       (undefined-function (e)
         (let ((msg (format nil "Undefined function: ~A" (cell-error-name e))))
+          (sync-package-context-from-backend)
           (record-repl-interaction input msg t)
           (format *error-output* "~&~A~%" msg)))
       (unbound-variable (e)
         (let ((msg (format nil "Unbound variable: ~A" (cell-error-name e))))
+          (sync-package-context-from-backend)
           (record-repl-interaction input msg t)
           (format *error-output* "~&~A~%" msg)))
       (error (e)
@@ -159,6 +174,8 @@
         (record-repl-interaction input (format nil "Error: ~A" e) t)
         ;; Print the error for other cases
         (format *error-output* "~&Error: ~A~%" e)
+        ;; Sync prompt package even after errors (best-effort).
+        (sync-package-context-from-backend)
         ;; Hint about backtrace if available
         (when *last-error-backtrace*
           (format *error-output* "~&~A~%" (colorize "  Use ,bt for backtrace" *color-dim*)))

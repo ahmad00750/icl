@@ -130,7 +130,9 @@
     (handler-case
         (let ((result (with-slynk-connection
                         (slynk-client:slime-eval
-                         `(cl:eval (cl:read-from-string ,wrapper-code))
+                         `(cl:eval
+                           (cl:let ((cl:*package* (cl:find-package "CL-USER")))
+                             (cl:read-from-string ,wrapper-code)))
                          *slynk-connection*))))
           (cond
             ;; Unexpected non-list result: treat as plain output with no values.
@@ -185,7 +187,9 @@ Returns (values output-string value-strings). Does not print to the local REPL."
     (list :error (princ-to-string err) nil)))" string))
          (result (with-slynk-connection
                    (slynk-client:slime-eval
-                    `(cl:eval (cl:read-from-string ,wrapper-code))
+                    `(cl:eval
+                      (cl:let ((cl:*package* (cl:find-package "CL-USER")))
+                        (cl:read-from-string ,wrapper-code)))
                     *slynk-connection*))))
     (cond
       ((not (consp result))
@@ -332,6 +336,14 @@ Returns (values output-string value-strings). Does not print to the local REPL."
         (cl:funcall (cl:read-from-string "slynk:set-package") ,package-name)
       (cl:error (cl-user::err)
         (cl:error "~A" cl-user::err)))
+   *slynk-connection*))
+
+(defun slynk-current-package ()
+  "Return the current package name from the backend."
+  (unless *slynk-connected-p*
+    (error "Not connected to backend server"))
+  (slynk-client:slime-eval
+   '(cl:package-name cl:*package*)
    *slynk-connection*))
 
 (defun slynk-list-threads ()
