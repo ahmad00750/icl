@@ -115,11 +115,28 @@ jobs:
 
       - name: Test basic evaluation (Windows)
         if: runner.os == 'Windows'
-        shell: bash
+        shell: powershell
         run: |
-          output=$(echo '(+ 1 2)' | timeout 60s ./${{ matrix.binary }} 2>&1)
-          echo "$output"
-          echo "$output" | grep -q "3" || (echo "FAIL: Expected result 3 not found" && exit 1)
+          $job = Start-Job -ScriptBlock {
+            $env:HOME = $env:USERPROFILE
+            "(+ 1 2)" | & ".\${{ matrix.binary }}" 2>&1
+          }
+          $result = Wait-Job $job -Timeout 60
+          if ($result) {
+            $output = Receive-Job $job
+            Write-Host $output
+            if ($output -match "3") {
+              Write-Host "PASS: Found expected result 3"
+            } else {
+              Write-Host "FAIL: Expected result 3 not found"
+              exit 1
+            }
+          } else {
+            Stop-Job $job
+            Remove-Job $job -Force
+            Write-Host "TIMEOUT: Test exceeded 60 seconds"
+            exit 1
+          }
 
       - name: Test ,info command (Linux)
         if: runner.os == 'Linux'
@@ -137,11 +154,28 @@ jobs:
 
       - name: Test ,info command (Windows)
         if: runner.os == 'Windows'
-        shell: bash
+        shell: powershell
         run: |
-          output=$(printf ',info\n,quit\n' | timeout 60s ./${{ matrix.binary }} 2>&1)
-          echo "$output"
-          echo "$output" | grep -q "SBCL" || (echo "FAIL: Expected SBCL info not found" && exit 1)
+          $job = Start-Job -ScriptBlock {
+            $env:HOME = $env:USERPROFILE
+            ",info`n,quit" | & ".\${{ matrix.binary }}" 2>&1
+          }
+          $result = Wait-Job $job -Timeout 60
+          if ($result) {
+            $output = Receive-Job $job
+            Write-Host $output
+            if ($output -match "SBCL") {
+              Write-Host "PASS: Found expected SBCL info"
+            } else {
+              Write-Host "FAIL: Expected SBCL info not found"
+              exit 1
+            }
+          } else {
+            Stop-Job $job
+            Remove-Job $job -Force
+            Write-Host "TIMEOUT: Test exceeded 60 seconds"
+            exit 1
+          }
 
       - name: Test browser server (Linux)
         if: runner.os == 'Linux'
