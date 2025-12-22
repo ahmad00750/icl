@@ -179,14 +179,21 @@
         (error (e)
           (format *error-output* "~&Error: ~A~%" e)
           (uiop:quit 1))))
-    ;; Start browser if requested, then start terminal REPL
+    ;; Start browser if requested
     (when browser-mode
       (format t "Starting ICL browser interface...~%")
       (let ((url (start-browser :open-browser t)))
         (format t "Browser started at ~A~%" url)))
-    ;; Start terminal REPL (config already loaded)
-    (start-repl :load-config nil
-                :banner (not no-banner))))
+    ;; If --connect -b, run browser-only mode (no terminal REPL)
+    (if (and connect-str browser-mode)
+        (progn
+          (format t "~&; Browser-only mode (connected to ~A)~%" connect-str)
+          (format t "~&; Press Ctrl-C to exit~%")
+          ;; Just keep the process alive - browser server runs in background
+          (loop (sleep 60)))
+        ;; Start terminal REPL (config already loaded)
+        (start-repl :load-config nil
+                    :banner (not no-banner)))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; CLI Application
