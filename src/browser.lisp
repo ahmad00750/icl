@@ -484,7 +484,27 @@
                (bt:make-thread
                 (lambda ()
                   (send-venn-refresh client source-expr panel-id))
-                :name "refresh-venn-handler")))))))))
+                :name "refresh-venn-handler"))))
+
+          ;; Refresh HTML panel data
+          ((string= type "refresh-html")
+           (let ((source-expr (gethash "sourceExpr" json))
+                 (panel-id (gethash "panelId" json)))
+             (when source-expr
+               (bt:make-thread
+                (lambda ()
+                  (send-html-refresh client source-expr panel-id))
+                :name "refresh-html-handler"))))
+
+          ;; Refresh SVG panel data
+          ((string= type "refresh-svg")
+           (let ((source-expr (gethash "sourceExpr" json))
+                 (panel-id (gethash "panelId" json)))
+             (when source-expr
+               (bt:make-thread
+                (lambda ()
+                  (send-svg-refresh client source-expr panel-id))
+                :name "refresh-svg-handler")))))))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; WebSocket Send Helpers
@@ -746,6 +766,42 @@
             (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj)))))
     (error (e)
       (browser-log "send-venn-refresh: ERROR ~A" e))))
+
+(defun send-html-refresh (client source-expr panel-id)
+  "Re-evaluate SOURCE-EXPR and send updated HTML content to panel."
+  (browser-log "send-html-refresh: expr=~S panel-id=~S" source-expr panel-id)
+  (handler-case
+      (let* ((query (format nil "(let ((obj ~A))
+                                   (if (stringp obj) obj nil))"
+                            source-expr))
+             (result (browser-query query)))
+        (let ((obj (make-hash-table :test 'equal)))
+          (setf (gethash "type" obj) "html-refresh")
+          (setf (gethash "panelId" obj) panel-id)
+          (if result
+              (setf (gethash "content" obj) result)
+              (setf (gethash "error" obj) "Expression did not evaluate to a string"))
+          (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj))))
+    (error (e)
+      (browser-log "send-html-refresh: ERROR ~A" e))))
+
+(defun send-svg-refresh (client source-expr panel-id)
+  "Re-evaluate SOURCE-EXPR and send updated SVG content to panel."
+  (browser-log "send-svg-refresh: expr=~S panel-id=~S" source-expr panel-id)
+  (handler-case
+      (let* ((query (format nil "(let ((obj ~A))
+                                   (if (stringp obj) obj nil))"
+                            source-expr))
+             (result (browser-query query)))
+        (let ((obj (make-hash-table :test 'equal)))
+          (setf (gethash "type" obj) "svg-refresh")
+          (setf (gethash "panelId" obj) panel-id)
+          (if result
+              (setf (gethash "content" obj) result)
+              (setf (gethash "error" obj) "Expression did not evaluate to a string"))
+          (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj))))
+    (error (e)
+      (browser-log "send-svg-refresh: ERROR ~A" e))))
 
 (defun open-class-graph-panel (class-name package-name)
   "Send message to browser to open a class graph panel."
@@ -1379,6 +1435,12 @@
         case 'venn-refresh':
           handleVennRefresh(msg);
           break;
+        case 'html-refresh':
+          handleHtmlRefresh(msg);
+          break;
+        case 'svg-refresh':
+          handleSvgRefresh(msg);
+          break;
       }
     };
 
@@ -1469,16 +1531,23 @@
       }
     }
 
+    // Sanitize expression for use as panel ID (remove special chars)
+    function sanitizeForPanelId(expr) {
+      if (!expr) return String(Date.now());
+      // Replace special characters with safe alternatives
+      return expr.replace(/[^a-zA-Z0-9-]/g, '_');
+    }
+
     // Open SVG panel - tracks by source expression for updates
     const svgStates = new Map();
     function openSvgPanel(title, content, sourceExpr) {
       console.log('openSvgPanel called:', title, content?.length, sourceExpr);
-      const panelId = 'svg-' + (sourceExpr || Date.now());
+      const panelId = 'svg-' + sanitizeForPanelId(sourceExpr);
+      console.log('SVG panelId:', panelId, 'svgStates has:', svgStates.has(panelId));
       if (dockviewApi) {
         // Check if panel exists and update it
-        const existingPanel = dockviewApi.getPanel(panelId);
-        if (existingPanel && svgStates.has(panelId)) {
-          // Update existing panel content
+        if (svgStates.has(panelId)) {
+          console.log('Updating existing SVG panel');
           const panelState = svgStates.get(panelId);
           if (panelState && panelState._element) {
             panelState._element.innerHTML = content;
@@ -1491,11 +1560,12 @@
             }
           }
         } else {
+          console.log('Creating new SVG panel');
           dockviewApi.addPanel({
             id: panelId,
             component: 'svg',
             title: title || 'SVG',
-            params: { content, sourceExpr },
+            params: { content, sourceExpr, panelId },
             position: { referencePanel: 'terminal', direction: 'right' }
           });
         }
@@ -1506,22 +1576,23 @@
     const htmlStates = new Map();
     function openHtmlPanel(title, content, sourceExpr) {
       console.log('openHtmlPanel called:', title, content?.length, sourceExpr);
-      const panelId = 'html-' + (sourceExpr || Date.now());
+      const panelId = 'html-' + sanitizeForPanelId(sourceExpr);
+      console.log('HTML panelId:', panelId, 'htmlStates has:', htmlStates.has(panelId));
       if (dockviewApi) {
         // Check if panel exists and update it
-        const existingPanel = dockviewApi.getPanel(panelId);
-        if (existingPanel && htmlStates.has(panelId)) {
-          // Update existing panel's iframe content
+        if (htmlStates.has(panelId)) {
+          console.log('Updating existing HTML panel');
           const panelState = htmlStates.get(panelId);
           if (panelState && panelState._iframe) {
             panelState._iframe.srcdoc = content;
           }
         } else {
+          console.log('Creating new HTML panel');
           dockviewApi.addPanel({
             id: panelId,
             component: 'html',
             title: title || 'HTML',
-            params: { content, sourceExpr },
+            params: { content, sourceExpr, panelId },
             position: { referencePanel: 'terminal', direction: 'right' }
           });
         }
@@ -1561,6 +1632,26 @@
           }));
         }
       });
+      // Refresh HTML panels
+      htmlStates.forEach((panel, panelId) => {
+        if (panel._sourceExpr) {
+          ws.send(JSON.stringify({
+            type: 'refresh-html',
+            sourceExpr: panel._sourceExpr,
+            panelId: panelId
+          }));
+        }
+      });
+      // Refresh SVG panels
+      svgStates.forEach((panel, panelId) => {
+        if (panel._sourceExpr) {
+          ws.send(JSON.stringify({
+            type: 'refresh-svg',
+            sourceExpr: panel._sourceExpr,
+            panelId: panelId
+          }));
+        }
+      });
     }
 
     // Handle hash-table refresh data
@@ -1572,6 +1663,39 @@
           console.log('Hash-table refresh error:', msg.error);
         } else {
           panel.updateData(msg.count, msg.entries);
+        }
+      }
+    }
+
+    // Handle HTML panel refresh data
+    function handleHtmlRefresh(msg) {
+      const panelId = msg.panelId;
+      const panel = htmlStates.get(panelId);
+      if (panel) {
+        if (msg.error) {
+          console.log('HTML refresh error:', msg.error);
+        } else if (panel._iframe) {
+          panel._iframe.srcdoc = msg.content;
+        }
+      }
+    }
+
+    // Handle SVG panel refresh data
+    function handleSvgRefresh(msg) {
+      const panelId = msg.panelId;
+      const panel = svgStates.get(panelId);
+      if (panel) {
+        if (msg.error) {
+          console.log('SVG refresh error:', msg.error);
+        } else {
+          panel._element.innerHTML = msg.content;
+          const svg = panel._element.querySelector('svg');
+          if (svg) {
+            svg.style.maxWidth = '100%';
+            svg.style.maxHeight = '100%';
+            svg.style.width = 'auto';
+            svg.style.height = 'auto';
+          }
         }
       }
     }
@@ -2055,9 +2179,11 @@
       }
       get element() { return this._element; }
       init(params) {
-        this._panelId = params.id;
+        // Use panelId from params (set by openSvgPanel) or fall back to dockview id
+        this._panelId = params.params?.panelId || params.id;
         this._sourceExpr = params.params?.sourceExpr;
         const content = params.params?.content || '';
+        console.log('SvgPanel.init panelId:', this._panelId, 'sourceExpr:', this._sourceExpr);
         this._element.innerHTML = content;
         // Scale SVG to fit if needed
         const svg = this._element.querySelector('svg');
@@ -2070,6 +2196,7 @@
         // Register for updates
         if (this._panelId) {
           svgStates.set(this._panelId, this);
+          console.log('SvgPanel registered:', this._panelId);
         }
       }
     }
@@ -2085,9 +2212,11 @@
       }
       get element() { return this._element; }
       init(params) {
-        this._panelId = params.id;
+        // Use panelId from params (set by openHtmlPanel) or fall back to dockview id
+        this._panelId = params.params?.panelId || params.id;
         this._sourceExpr = params.params?.sourceExpr;
         const content = params.params?.content || '';
+        console.log('HtmlPanel.init panelId:', this._panelId, 'sourceExpr:', this._sourceExpr);
         // Use srcdoc for sandboxed HTML rendering
         this._iframe = document.createElement('iframe');
         this._iframe.style.cssText = 'width:100%;height:100%;border:none;background:white;';
@@ -2097,6 +2226,7 @@
         // Register for updates
         if (this._panelId) {
           htmlStates.set(this._panelId, this);
+          console.log('HtmlPanel registered:', this._panelId);
         }
       }
     }
