@@ -785,7 +785,7 @@
         (setf (gethash "sourceExpr" obj) source-expr)
         (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj))))))
 
-(defun open-svg-panel (title content)
+(defun open-svg-panel (title content source-expr)
   "Send message to browser to open an SVG visualization panel."
   (when *repl-resource*
     (dolist (client (hunchensocket:clients *repl-resource*))
@@ -793,9 +793,10 @@
         (setf (gethash "type" obj) "open-svg")
         (setf (gethash "title" obj) title)
         (setf (gethash "content" obj) content)
+        (setf (gethash "sourceExpr" obj) source-expr)
         (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj))))))
 
-(defun open-html-panel (title content)
+(defun open-html-panel (title content source-expr)
   "Send message to browser to open an HTML visualization panel."
   (when *repl-resource*
     (dolist (client (hunchensocket:clients *repl-resource*))
@@ -803,6 +804,7 @@
         (setf (gethash "type" obj) "open-html")
         (setf (gethash "title" obj) title)
         (setf (gethash "content" obj) content)
+        (setf (gethash "sourceExpr" obj) source-expr)
         (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj))))))
 
 (defun needs-case-escape-p (str)
@@ -1360,10 +1362,10 @@
           openHashTablePanel(msg.title, msg.count, msg.entries, msg.sourceExpr);
           break;
         case 'open-svg':
-          openSvgPanel(msg.title, msg.content);
+          openSvgPanel(msg.title, msg.content, msg.sourceExpr);
           break;
         case 'open-html':
-          openHtmlPanel(msg.title, msg.content);
+          openHtmlPanel(msg.title, msg.content, msg.sourceExpr);
           break;
         case 'refresh-visualizations':
           refreshAllVisualizations();
@@ -1467,35 +1469,62 @@
       }
     }
 
-    // Open SVG panel
-    let svgCounter = 0;
-    function openSvgPanel(title, content) {
-      console.log('openSvgPanel called:', title, content?.length);
-      const panelId = 'svg-' + (++svgCounter);
+    // Open SVG panel - tracks by source expression for updates
+    const svgStates = new Map();
+    function openSvgPanel(title, content, sourceExpr) {
+      console.log('openSvgPanel called:', title, content?.length, sourceExpr);
+      const panelId = 'svg-' + (sourceExpr || Date.now());
       if (dockviewApi) {
-        dockviewApi.addPanel({
-          id: panelId,
-          component: 'svg',
-          title: title || 'SVG',
-          params: { content },
-          position: { referencePanel: 'terminal', direction: 'right' }
-        });
+        // Check if panel exists and update it
+        const existingPanel = dockviewApi.getPanel(panelId);
+        if (existingPanel && svgStates.has(panelId)) {
+          // Update existing panel content
+          const panelState = svgStates.get(panelId);
+          if (panelState && panelState._element) {
+            panelState._element.innerHTML = content;
+            const svg = panelState._element.querySelector('svg');
+            if (svg) {
+              svg.style.maxWidth = '100%';
+              svg.style.maxHeight = '100%';
+              svg.style.width = 'auto';
+              svg.style.height = 'auto';
+            }
+          }
+        } else {
+          dockviewApi.addPanel({
+            id: panelId,
+            component: 'svg',
+            title: title || 'SVG',
+            params: { content, sourceExpr },
+            position: { referencePanel: 'terminal', direction: 'right' }
+          });
+        }
       }
     }
 
-    // Open HTML panel
-    let htmlCounter = 0;
-    function openHtmlPanel(title, content) {
-      console.log('openHtmlPanel called:', title, content?.length);
-      const panelId = 'html-' + (++htmlCounter);
+    // Open HTML panel - tracks by source expression for updates
+    const htmlStates = new Map();
+    function openHtmlPanel(title, content, sourceExpr) {
+      console.log('openHtmlPanel called:', title, content?.length, sourceExpr);
+      const panelId = 'html-' + (sourceExpr || Date.now());
       if (dockviewApi) {
-        dockviewApi.addPanel({
-          id: panelId,
-          component: 'html',
-          title: title || 'HTML',
-          params: { content },
-          position: { referencePanel: 'terminal', direction: 'right' }
-        });
+        // Check if panel exists and update it
+        const existingPanel = dockviewApi.getPanel(panelId);
+        if (existingPanel && htmlStates.has(panelId)) {
+          // Update existing panel's iframe content
+          const panelState = htmlStates.get(panelId);
+          if (panelState && panelState._iframe) {
+            panelState._iframe.srcdoc = content;
+          }
+        } else {
+          dockviewApi.addPanel({
+            id: panelId,
+            component: 'html',
+            title: title || 'HTML',
+            params: { content, sourceExpr },
+            position: { referencePanel: 'terminal', direction: 'right' }
+          });
+        }
       }
     }
 
@@ -2021,9 +2050,13 @@
       constructor() {
         this._element = document.createElement('div');
         this._element.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;background:var(--bg-primary);overflow:auto;display:flex;align-items:center;justify-content:center;';
+        this._panelId = null;
+        this._sourceExpr = null;
       }
       get element() { return this._element; }
       init(params) {
+        this._panelId = params.id;
+        this._sourceExpr = params.params?.sourceExpr;
         const content = params.params?.content || '';
         this._element.innerHTML = content;
         // Scale SVG to fit if needed
@@ -2034,6 +2067,10 @@
           svg.style.width = 'auto';
           svg.style.height = 'auto';
         }
+        // Register for updates
+        if (this._panelId) {
+          svgStates.set(this._panelId, this);
+        }
       }
     }
 
@@ -2042,16 +2079,25 @@
       constructor() {
         this._element = document.createElement('div');
         this._element.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;background:var(--bg-primary);';
+        this._panelId = null;
+        this._sourceExpr = null;
+        this._iframe = null;
       }
       get element() { return this._element; }
       init(params) {
+        this._panelId = params.id;
+        this._sourceExpr = params.params?.sourceExpr;
         const content = params.params?.content || '';
         // Use srcdoc for sandboxed HTML rendering
-        const iframe = document.createElement('iframe');
-        iframe.style.cssText = 'width:100%;height:100%;border:none;background:white;';
-        iframe.sandbox = 'allow-same-origin';  // Minimal permissions
-        iframe.srcdoc = content;
-        this._element.appendChild(iframe);
+        this._iframe = document.createElement('iframe');
+        this._iframe.style.cssText = 'width:100%;height:100%;border:none;background:white;';
+        this._iframe.sandbox = 'allow-same-origin';  // Minimal permissions
+        this._iframe.srcdoc = content;
+        this._element.appendChild(this._iframe);
+        // Register for updates
+        if (this._panelId) {
+          htmlStates.set(this._panelId, this);
+        }
       }
     }
 

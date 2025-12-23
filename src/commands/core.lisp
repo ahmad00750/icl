@@ -1327,11 +1327,11 @@ Examples:
              (format t "~&; Visualizing FSet set (~A members)~%" count)))
           (:svg
            (let ((content (second parsed)))
-             (open-svg-panel "SVG" content)
+             (open-svg-panel trimmed content trimmed)
              (format t "~&; Visualizing SVG content~%")))
           (:html
            (let ((content (second parsed)))
-             (open-html-panel "HTML" content)
+             (open-html-panel trimmed content trimmed)
              (format t "~&; Visualizing HTML content~%")))
           (:symbol
            (format t "~&; Symbol ~A is not a class name~%" (second parsed)))
