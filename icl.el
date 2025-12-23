@@ -23,7 +23,7 @@
   "ICL browser integration."
   :group 'tools)
 
-(defcustom icl-program "/home/green/git/icl/icl"
+(defcustom icl-program "icl"
   "Path to the ICL executable."
   :type 'string
   :group 'icl)
