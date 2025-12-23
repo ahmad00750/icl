@@ -873,27 +873,26 @@
                                      ;; Unknown type
                                      (t (list :unknown (princ-to-string (type-of obj))))))"
                             source-expr))
-             (result (browser-query query)))
-        (when result
-          (let ((obj (make-hash-table :test 'equal))
-                (parsed (ignore-errors (read-from-string result))))
+             (parsed (browser-query query)))  ; browser-query already parses
+        (when parsed
+          (let ((obj (make-hash-table :test 'equal)))
             (setf (gethash "type" obj) "viz-refresh")
             (setf (gethash "panelId" obj) panel-id)
             (setf (gethash "sourceExpr" obj) source-expr)
             (cond
-              ((and parsed (eq (first parsed) :html))
+              ((and (listp parsed) (eq (first parsed) :html))
                (setf (gethash "vizType" obj) "html")
                (setf (gethash "content" obj) (second parsed)))
-              ((and parsed (eq (first parsed) :svg))
+              ((and (listp parsed) (eq (first parsed) :svg))
                (setf (gethash "vizType" obj) "svg")
                (setf (gethash "content" obj) (second parsed)))
-              ((and parsed (eq (first parsed) :hash-table))
+              ((and (listp parsed) (eq (first parsed) :hash-table))
                (setf (gethash "vizType" obj) "hash-table")
                (setf (gethash "count" obj) (second parsed))
                (setf (gethash "entries" obj) (third parsed)))
               (t
                (setf (gethash "vizType" obj) "unknown")
-               (setf (gethash "error" obj) (format nil "Unknown type: ~A" (second parsed)))))
+               (setf (gethash "error" obj) (format nil "Unknown type: ~A" parsed))))
             (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj)))))
     (error (e)
       (browser-log "send-viz-refresh: ERROR ~A" e))))
@@ -2335,9 +2334,11 @@
         const count = params.params?.count || 0;
         const entries = params.params?.entries || [];
 
-        // Register for refresh updates
+        // Register for refresh updates (both old and unified systems)
         if (this._panelId) {
           hashtableStates.set(this._panelId, this);
+          // Also register with unified vizStates for type-change detection
+          registerVizPanel(this._panelId, this._sourceExpr, this._element, 'hash-table');
         }
 
         this._renderTable(count, entries);
