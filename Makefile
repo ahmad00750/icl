@@ -22,4 +22,4 @@ clean:
 	rm -rf *~ icl slynk.zip
 
 lint:
-	ocicl lint src/
+	ocicl lint icl.asd
