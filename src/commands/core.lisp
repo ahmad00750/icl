@@ -1394,7 +1394,7 @@ Examples:
              (format t "~&; Visualizing JSON content~%")))
           (:vega-lite
            (let ((spec (second parsed)))
-             (open-vega-lite-panel "Vega-Lite" spec trimmed)
+             (open-vega-lite-panel trimmed spec trimmed)
              (format t "~&; Visualizing Vega-Lite chart~%")))
           (:image-bytes
            (let* ((mime (second parsed))

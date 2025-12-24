@@ -1865,6 +1865,7 @@
 
     // Vega-Lite Panel state management
     const vegaLiteStates = new Map();
+    let currentThemeIsDark = true;  // Track current theme for Vega-Lite
 
     // Open Vega-Lite panel - tracks by source expression for updates
     function openVegaLitePanel(title, spec, sourceExpr) {
@@ -1899,11 +1900,36 @@
       element.appendChild(container);
       try {
         const specObj = typeof spec === 'string' ? JSON.parse(spec) : spec;
-        // Use vega-embed to render the chart
-        vegaEmbed(container, specObj, {
-          theme: 'dark',
-          actions: { source: false, compiled: false, editor: true }
-        }).catch(err => {
+        // Set responsive sizing if not explicitly set
+        if (!specObj.width) specObj.width = 'container';
+        if (!specObj.height) specObj.height = 'container';
+        // Add padding to prevent clipping
+        if (!specObj.padding) specObj.padding = 20;
+        // Set background to transparent so theme shows through
+        if (!specObj.background) specObj.background = 'transparent';
+        // Use vega-embed to render the chart with theme-aware config
+        const embedConfig = {
+          theme: currentThemeIsDark ? 'dark' : 'excel',
+          actions: { source: false, compiled: false, editor: true },
+          config: {
+            axis: {
+              labelColor: currentThemeIsDark ? '#e0e0e0' : '#333333',
+              titleColor: currentThemeIsDark ? '#e0e0e0' : '#333333',
+              gridColor: currentThemeIsDark ? '#444444' : '#dddddd'
+            },
+            legend: {
+              labelColor: currentThemeIsDark ? '#e0e0e0' : '#333333',
+              titleColor: currentThemeIsDark ? '#e0e0e0' : '#333333'
+            },
+            title: {
+              color: currentThemeIsDark ? '#e0e0e0' : '#333333'
+            },
+            view: {
+              stroke: 'transparent'
+            }
+          }
+        };
+        vegaEmbed(container, specObj, embedConfig).catch(err => {
           console.error('Vega-Lite render error:', err);
           element.innerHTML = '<div style=\"padding:20px;color:var(--error);\">' + err.message + '</div>';
         });
@@ -2227,14 +2253,26 @@
         }
       });
 
-      // Switch highlight.js theme based on dark/light mode
-      const hljsThemeLink = document.getElementById('hljs-theme');
-      if (hljsThemeLink && themeData.dockviewTheme) {
+      // Detect dark/light mode from theme
+      if (themeData.dockviewTheme) {
         const isDark = themeData.dockviewTheme.includes('dark') ||
                       themeData.dockviewTheme.includes('vs-dark') ||
                       themeData.dockviewTheme === 'dockview-theme-dark';
-        const hljsTheme = isDark ? 'github-dark' : 'github';
-        hljsThemeLink.href = 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/' + hljsTheme + '.min.css';
+        currentThemeIsDark = isDark;
+
+        // Switch highlight.js theme based on dark/light mode
+        const hljsThemeLink = document.getElementById('hljs-theme');
+        if (hljsThemeLink) {
+          const hljsTheme = isDark ? 'github-dark' : 'github';
+          hljsThemeLink.href = 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/' + hljsTheme + '.min.css';
+        }
+
+        // Re-render all Vega-Lite panels to apply new theme
+        vegaLiteStates.forEach((panel) => {
+          if (panel.reRender) {
+            panel.reRender();
+          }
+        });
       }
     }
 
@@ -2741,15 +2779,17 @@
     class VegaLitePanel {
       constructor() {
         this._element = document.createElement('div');
-        this._element.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;background:var(--bg-primary);overflow:auto;display:flex;align-items:center;justify-content:center;';
+        this._element.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;background:var(--bg-primary);overflow:hidden;';
         this._panelId = null;
         this._sourceExpr = null;
+        this._spec = null;
       }
       get element() { return this._element; }
       init(params) {
         this._panelId = params.params?.panelId || params.id;
         this._sourceExpr = params.params?.sourceExpr;
-        const spec = params.params?.spec || '';
+        this._spec = params.params?.spec || '';
+        const spec = this._spec;
         console.log('VegaLitePanel.init panelId:', this._panelId, 'sourceExpr:', this._sourceExpr);
         // Render with Vega-Embed
         renderVegaLite(this._element, spec);
@@ -2757,6 +2797,18 @@
         if (this._panelId) {
           vegaLiteStates.set(this._panelId, this);
           console.log('VegaLitePanel registered:', this._panelId);
+        }
+        // Re-render on resize (debounced)
+        let resizeTimeout = null;
+        const resizeObserver = new ResizeObserver(() => {
+          if (resizeTimeout) clearTimeout(resizeTimeout);
+          resizeTimeout = setTimeout(() => this.reRender(), 150);
+        });
+        resizeObserver.observe(this._element);
+      }
+      reRender() {
+        if (this._spec) {
+          renderVegaLite(this._element, this._spec);
         }
       }
     }

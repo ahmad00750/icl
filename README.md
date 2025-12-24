@@ -342,6 +342,8 @@ Supported visualization types:
 
 Return `NIL` from your method to fall back to ICL's built-in type detection.
 
+See `examples/vega.lisp` for a complete example of custom Vega-Lite visualization.
+
 ### Configuration
 
 | Command | Description |
