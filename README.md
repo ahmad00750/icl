@@ -18,6 +18,16 @@ ICL is an enhanced REPL for Common Lisp. It provides a modern interactive experi
 
 *Package browser, symbol inspector, data visualization, and class hierarchy graphs*
 
+## Flame Graph Profiling
+
+<p align="center">
+  <img src="assets/flamegraph-demo.png" alt="ICL Flame Graph Demo">
+</p>
+
+*Interactive Speedscope flame graphs for performance profiling (SBCL only)*
+
+Profile any expression with `,flame` and explore the results in an interactive [Speedscope](https://www.speedscope.app/) visualization. Switch between Time Order, Left Heavy, and Sandwich views to identify performance bottlenecks.
+
 ## Features
 
 - **Syntax highlighting** - Colorized input with distinct colors for keywords, strings, comments, numbers, and symbols
@@ -37,6 +47,7 @@ ICL is an enhanced REPL for Common Lisp. It provides a modern interactive experi
 - **Terminal-aware colors** - Automatically detects light/dark terminal background
 - **AI integration** - Use `,explain` to get AI-powered explanations of code, errors, and results
 - **Browser interface** - Web UI with package browser, symbol list, inspector, and xterm.js terminal
+- **Flame graph profiling** - Interactive Speedscope visualizations for performance analysis (SBCL)
 - **Emacs integration** - Works with SLY/SLIME for synchronized browser visualization
 
 ## Installation
