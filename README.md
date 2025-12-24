@@ -321,15 +321,24 @@ Define methods on `icl-runtime:visualize` to create custom visualizations for yo
 ;; Visualize config as JSON
 (defmethod icl-runtime:visualize ((obj my-config))
   (list :json (serialize-to-json obj)))
+
+;; Visualize metrics as Vega-Lite bar chart
+(defmethod icl-runtime:visualize ((obj my-metrics))
+  (list :vega-lite
+        (format nil "{\"$schema\":\"https://vega.github.io/schema/vega-lite/v5.json\",
+                      \"data\":{\"values\":~A},
+                      \"mark\":\"bar\",
+                      \"encoding\":{\"x\":{\"field\":\"name\",\"type\":\"nominal\"},
+                                    \"y\":{\"field\":\"value\",\"type\":\"quantitative\"}}}"
+                (metrics-to-json obj))))
 ```
 
 Supported visualization types:
 - `(:html string)` - Render HTML in sandboxed iframe
 - `(:svg string)` - Render SVG graphics
 - `(:json string)` - Syntax-highlighted JSON
-- `(:table title columns rows)` - Data table with headers
+- `(:vega-lite spec-string)` - Render [Vega-Lite](https://vega.github.io/vega-lite/) chart
 - `(:image-base64 mime-type base64-string)` - Image from base64 data
-- `(:text string)` - Plain text display
 
 Return `NIL` from your method to fall back to ICL's built-in type detection.
 

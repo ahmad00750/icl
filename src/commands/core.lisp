@@ -1221,11 +1221,11 @@ Examples:
   "Visualize a single expression - detect type and dispatch."
   ;; Query backend to determine type and get visualization data
   ;; First checks for custom icl-runtime:visualize method, then falls back to built-in detection
-  (let* ((query (format nil "(let ((obj ~A)
-                               (fset-pkg (find-package :fset))
-                               (custom-viz (and (find-package :icl-runtime)
-                                                (fboundp 'icl-runtime:visualize)
-                                                (icl-runtime:visualize obj))))
+  (let* ((query (format nil "(let* ((obj ~A)
+                                (fset-pkg (find-package :fset))
+                                (custom-viz (and (find-package :icl-runtime)
+                                                 (fboundp 'icl-runtime:visualize)
+                                                 (icl-runtime:visualize obj))))
                            (if custom-viz
                                custom-viz
                                (flet ((fset-sym (name)
@@ -1298,6 +1298,15 @@ Examples:
                                                (and (>= (length trimmed) 5)
                                                     (string-equal (subseq trimmed 0 5) \"<html\")))))
                                     (list :html obj))
+                                   ;; Vega-Lite spec detection (JSON with $schema containing vega-lite, or mark+encoding keys)
+                                   ((and (stringp obj)
+                                         (let ((trimmed (string-left-trim '(#\\Space #\\Tab #\\Newline) obj)))
+                                           (and (> (length trimmed) 0)
+                                                (char= (char trimmed 0) #\\{)
+                                                (or (search \"vega-lite\" obj :test #'char-equal)
+                                                    (and (search \"\\\"mark\\\"\" obj)
+                                                         (search \"\\\"encoding\\\"\" obj))))))
+                                    (list :vega-lite obj))
                                    ;; JSON string detection
                                    ((and (stringp obj)
                                          (let ((trimmed (string-left-trim '(#\\Space #\\Tab #\\Newline) obj)))
@@ -1383,6 +1392,10 @@ Examples:
            (let ((content (second parsed)))
              (open-json-panel trimmed content trimmed)
              (format t "~&; Visualizing JSON content~%")))
+          (:vega-lite
+           (let ((spec (second parsed)))
+             (open-vega-lite-panel "Vega-Lite" spec trimmed)
+             (format t "~&; Visualizing Vega-Lite chart~%")))
           (:image-bytes
            (let* ((mime (second parsed))
                   (base64 (third parsed))

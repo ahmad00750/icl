@@ -132,9 +132,8 @@ Returns a list where the first element is a keyword indicating the type:
   (:html string) - Render HTML in sandboxed iframe
   (:svg string) - Render SVG graphics
   (:json string) - Display formatted JSON
-  (:table title columns rows) - Display a data table
+  (:vega-lite spec-string) - Render Vega-Lite chart
   (:image-base64 mime-type base64-string) - Display image from base64
-  (:text string) - Display plain text
 Return NIL to use default ICL visualization.\"))
    (defmethod visualize (object)
      \"Default method returns NIL to use built-in visualization.\"

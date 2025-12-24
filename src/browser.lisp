@@ -1019,6 +1019,17 @@
         (setf (gethash "sourceExpr" obj) source-expr)
         (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj))))))
 
+(defun open-vega-lite-panel (title spec source-expr)
+  "Send message to browser to open a Vega-Lite visualization panel."
+  (when *repl-resource*
+    (dolist (client (hunchensocket:clients *repl-resource*))
+      (let ((obj (make-hash-table :test 'equal)))
+        (setf (gethash "type" obj) "open-vega-lite")
+        (setf (gethash "title" obj) title)
+        (setf (gethash "spec" obj) spec)
+        (setf (gethash "sourceExpr" obj) source-expr)
+        (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj))))))
+
 (defun needs-case-escape-p (str)
   "Return T if STR contains lowercase letters that would be upcased by the reader."
   (and (stringp str)
@@ -1484,6 +1495,9 @@
   <script src='/assets/xterm-addon-fit.min.js'></script>
   <script src='/assets/viz-standalone.js'></script>
   <script src='https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js'></script>
+  <script src='https://cdn.jsdelivr.net/npm/vega@5'></script>
+  <script src='https://cdn.jsdelivr.net/npm/vega-lite@5'></script>
+  <script src='https://cdn.jsdelivr.net/npm/vega-embed@6'></script>
   <script>
     // WebSocket connection
     const ws = new WebSocket('ws://' + location.host + '/ws/~A');
@@ -1610,6 +1624,12 @@
           break;
         case 'viz-refresh':
           handleVizRefresh(msg);
+          break;
+        case 'open-vega-lite':
+          openVegaLitePanel(msg.title, msg.spec, msg.sourceExpr);
+          break;
+        case 'vega-lite-refresh':
+          handleVegaLiteRefresh(msg);
           break;
       }
     };
@@ -1841,6 +1861,68 @@
       element.innerHTML = '';
       element.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;background:var(--bg-primary);';
       element.appendChild(img);
+    }
+
+    // Vega-Lite Panel state management
+    const vegaLiteStates = new Map();
+
+    // Open Vega-Lite panel - tracks by source expression for updates
+    function openVegaLitePanel(title, spec, sourceExpr) {
+      console.log('openVegaLitePanel called:', title, spec?.length, sourceExpr);
+      const panelId = 'vega-lite-' + sanitizeForPanelId(sourceExpr);
+      if (dockviewApi) {
+        // Check if panel exists and update it
+        if (vegaLiteStates.has(panelId)) {
+          console.log('Updating existing Vega-Lite panel');
+          const panelState = vegaLiteStates.get(panelId);
+          if (panelState && panelState._element) {
+            renderVegaLite(panelState._element, spec);
+          }
+        } else {
+          console.log('Creating new Vega-Lite panel');
+          dockviewApi.addPanel({
+            id: panelId,
+            component: 'vega-lite',
+            title: title || 'Vega-Lite',
+            params: { spec, sourceExpr, panelId },
+            position: { referencePanel: 'terminal', direction: 'right' }
+          });
+        }
+      }
+    }
+
+    // Render Vega-Lite spec into element
+    function renderVegaLite(element, spec) {
+      element.innerHTML = '';
+      const container = document.createElement('div');
+      container.style.cssText = 'width:100%;height:100%;';
+      element.appendChild(container);
+      try {
+        const specObj = typeof spec === 'string' ? JSON.parse(spec) : spec;
+        // Use vega-embed to render the chart
+        vegaEmbed(container, specObj, {
+          theme: 'dark',
+          actions: { source: false, compiled: false, editor: true }
+        }).catch(err => {
+          console.error('Vega-Lite render error:', err);
+          element.innerHTML = '<div style=\"padding:20px;color:var(--error);\">' + err.message + '</div>';
+        });
+      } catch (err) {
+        console.error('Vega-Lite JSON parse error:', err);
+        element.innerHTML = '<div style=\"padding:20px;color:var(--error);\">Invalid Vega-Lite spec: ' + err.message + '</div>';
+      }
+    }
+
+    // Handle Vega-Lite refresh
+    function handleVegaLiteRefresh(msg) {
+      const panelId = msg.panelId;
+      const spec = msg.spec;
+      if (vegaLiteStates.has(panelId)) {
+        const panelState = vegaLiteStates.get(panelId);
+        if (panelState && panelState._element) {
+          renderVegaLite(panelState._element, spec);
+        }
+      }
     }
 
     // Refresh all visualization panels
@@ -2651,6 +2733,30 @@
         if (this._panelId) {
           registerVizPanel(this._panelId, this._sourceExpr, this._element, 'image');
           console.log('ImagePanel registered:', this._panelId);
+        }
+      }
+    }
+
+    // Vega-Lite Panel - renders Vega-Lite specifications
+    class VegaLitePanel {
+      constructor() {
+        this._element = document.createElement('div');
+        this._element.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;background:var(--bg-primary);overflow:auto;display:flex;align-items:center;justify-content:center;';
+        this._panelId = null;
+        this._sourceExpr = null;
+      }
+      get element() { return this._element; }
+      init(params) {
+        this._panelId = params.params?.panelId || params.id;
+        this._sourceExpr = params.params?.sourceExpr;
+        const spec = params.params?.spec || '';
+        console.log('VegaLitePanel.init panelId:', this._panelId, 'sourceExpr:', this._sourceExpr);
+        // Render with Vega-Embed
+        renderVegaLite(this._element, spec);
+        // Register with vegaLiteStates for updates
+        if (this._panelId) {
+          vegaLiteStates.set(this._panelId, this);
+          console.log('VegaLitePanel registered:', this._panelId);
         }
       }
     }
@@ -3672,6 +3778,7 @@
           case 'html': return new HtmlPanel();
           case 'json': return new JsonPanel();
           case 'image': return new ImagePanel();
+          case 'vega-lite': return new VegaLitePanel();
           case 'venn': return new VennPanel();
           case 'graphviz': return new GraphvizPanel();
           case 'terminal': return new TerminalPanel();
