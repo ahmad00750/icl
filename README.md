@@ -47,7 +47,7 @@ Profile any expression with `,flame` and explore the results in an interactive [
 - **Terminal-aware colors** - Automatically detects light/dark terminal background
 - **AI integration** - Use `,explain` to get AI-powered explanations of code, errors, and results
 - **Browser interface** - Web UI with package browser, symbol list, inspector, and xterm.js terminal
-- **Data visualization** - Visualize hash tables, classes, sets, SVG, HTML, JSON, and Vega-Lite charts
+- **Data visualization** - Visualize hash tables, classes, sets, SVG, HTML, JSON, Vega-Lite charts, and Mermaid diagrams
 - **Custom visualizations** - Define `icl-runtime:visualize` methods for your own classes
 - **Flame graph profiling** - Interactive Speedscope visualizations for performance analysis (SBCL)
 - **Emacs integration** - Works with SLY/SLIME for synchronized browser visualization
@@ -340,11 +340,12 @@ Supported visualization types:
 - `(:svg string)` - Render SVG graphics
 - `(:json string)` - Syntax-highlighted JSON
 - `(:vega-lite spec-string)` - Render [Vega-Lite](https://vega.github.io/vega-lite/) chart
+- `(:mermaid definition-string)` - Render [Mermaid](https://mermaid.js.org/) diagram
 - `(:image-base64 mime-type base64-string)` - Image from base64 data
 
 Return `NIL` from your method to fall back to ICL's built-in type detection.
 
-See `examples/vega.lisp` for a complete example of custom Vega-Lite visualization.
+See `examples/vega.lisp` for Vega-Lite visualization and `examples/mermaid.lisp` for Mermaid diagrams.
 
 ### Configuration
 

@@ -1030,6 +1030,17 @@
         (setf (gethash "sourceExpr" obj) source-expr)
         (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj))))))
 
+(defun open-mermaid-panel (title definition source-expr)
+  "Send message to browser to open a Mermaid diagram panel."
+  (when *repl-resource*
+    (dolist (client (hunchensocket:clients *repl-resource*))
+      (let ((obj (make-hash-table :test 'equal)))
+        (setf (gethash "type" obj) "open-mermaid")
+        (setf (gethash "title" obj) title)
+        (setf (gethash "definition" obj) definition)
+        (setf (gethash "sourceExpr" obj) source-expr)
+        (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj))))))
+
 (defun needs-case-escape-p (str)
   "Return T if STR contains lowercase letters that would be upcased by the reader."
   (and (stringp str)
@@ -1498,6 +1509,7 @@
   <script src='https://cdn.jsdelivr.net/npm/vega@5'></script>
   <script src='https://cdn.jsdelivr.net/npm/vega-lite@5'></script>
   <script src='https://cdn.jsdelivr.net/npm/vega-embed@6'></script>
+  <script src='https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js'></script>
   <script>
     // WebSocket connection
     const ws = new WebSocket('ws://' + location.host + '/ws/~A');
@@ -1630,6 +1642,12 @@
           break;
         case 'vega-lite-refresh':
           handleVegaLiteRefresh(msg);
+          break;
+        case 'open-mermaid':
+          openMermaidPanel(msg.title, msg.definition, msg.sourceExpr);
+          break;
+        case 'mermaid-refresh':
+          handleMermaidRefresh(msg);
           break;
       }
     };
@@ -1947,6 +1965,83 @@
         const panelState = vegaLiteStates.get(panelId);
         if (panelState && panelState._element) {
           renderVegaLite(panelState._element, spec);
+        }
+      }
+    }
+
+    // Mermaid Panel state management
+    const mermaidStates = new Map();
+    let mermaidIdCounter = 0;
+
+    // Initialize Mermaid with theme support
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: currentThemeIsDark ? 'dark' : 'default',
+      securityLevel: 'loose'
+    });
+
+    // Open Mermaid panel - tracks by source expression for updates
+    function openMermaidPanel(title, definition, sourceExpr) {
+      console.log('openMermaidPanel called:', title, definition?.length, sourceExpr);
+      const panelId = 'mermaid-' + sanitizeForPanelId(sourceExpr);
+      if (dockviewApi) {
+        // Check if panel exists and update it
+        if (mermaidStates.has(panelId)) {
+          console.log('Updating existing Mermaid panel');
+          const panelState = mermaidStates.get(panelId);
+          if (panelState && panelState._element) {
+            renderMermaid(panelState._element, definition);
+          }
+        } else {
+          console.log('Creating new Mermaid panel');
+          dockviewApi.addPanel({
+            id: panelId,
+            component: 'mermaid',
+            title: title || 'Mermaid',
+            params: { definition, sourceExpr, panelId },
+            position: { referencePanel: 'terminal', direction: 'right' }
+          });
+        }
+      }
+    }
+
+    // Render Mermaid definition into element
+    async function renderMermaid(element, definition) {
+      element.innerHTML = '';
+      const container = document.createElement('div');
+      container.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:auto;';
+      element.appendChild(container);
+      try {
+        // Update Mermaid theme based on current mode
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: currentThemeIsDark ? 'dark' : 'default',
+          securityLevel: 'loose'
+        });
+        const uniqueId = 'mermaid-render-' + (++mermaidIdCounter);
+        const { svg } = await mermaid.render(uniqueId, definition);
+        container.innerHTML = svg;
+        // Make SVG responsive
+        const svgEl = container.querySelector('svg');
+        if (svgEl) {
+          svgEl.style.maxWidth = '100%';
+          svgEl.style.maxHeight = '100%';
+          svgEl.style.height = 'auto';
+        }
+      } catch (err) {
+        console.error('Mermaid render error:', err);
+        container.innerHTML = '<div style=\"padding:20px;color:var(--error);white-space:pre-wrap;\">Mermaid error: ' + err.message + '</div>';
+      }
+    }
+
+    // Handle Mermaid refresh
+    function handleMermaidRefresh(msg) {
+      const panelId = msg.panelId;
+      const definition = msg.definition;
+      if (mermaidStates.has(panelId)) {
+        const panelState = mermaidStates.get(panelId);
+        if (panelState && panelState._element) {
+          renderMermaid(panelState._element, definition);
         }
       }
     }
@@ -2269,6 +2364,13 @@
 
         // Re-render all Vega-Lite panels to apply new theme
         vegaLiteStates.forEach((panel) => {
+          if (panel.reRender) {
+            panel.reRender();
+          }
+        });
+
+        // Re-render all Mermaid panels to apply new theme
+        mermaidStates.forEach((panel) => {
           if (panel.reRender) {
             panel.reRender();
           }
@@ -2809,6 +2911,42 @@
       reRender() {
         if (this._spec) {
           renderVegaLite(this._element, this._spec);
+        }
+      }
+    }
+
+    class MermaidPanel {
+      constructor() {
+        this._element = document.createElement('div');
+        this._element.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;background:var(--bg-primary);overflow:auto;';
+        this._panelId = null;
+        this._sourceExpr = null;
+        this._definition = '';
+      }
+      get element() { return this._element; }
+      init(params) {
+        this._panelId = params.params?.panelId || params.id;
+        this._sourceExpr = params.params?.sourceExpr;
+        this._definition = params.params?.definition || '';
+        console.log('MermaidPanel.init panelId:', this._panelId, 'sourceExpr:', this._sourceExpr);
+        // Render diagram
+        renderMermaid(this._element, this._definition);
+        // Register with mermaidStates for updates
+        if (this._panelId) {
+          mermaidStates.set(this._panelId, this);
+          console.log('MermaidPanel registered:', this._panelId);
+        }
+        // Re-render on resize (debounced)
+        let resizeTimeout = null;
+        const resizeObserver = new ResizeObserver(() => {
+          if (resizeTimeout) clearTimeout(resizeTimeout);
+          resizeTimeout = setTimeout(() => this.reRender(), 150);
+        });
+        resizeObserver.observe(this._element);
+      }
+      reRender() {
+        if (this._definition) {
+          renderMermaid(this._element, this._definition);
         }
       }
     }
@@ -3831,6 +3969,7 @@
           case 'json': return new JsonPanel();
           case 'image': return new ImagePanel();
           case 'vega-lite': return new VegaLitePanel();
+          case 'mermaid': return new MermaidPanel();
           case 'venn': return new VennPanel();
           case 'graphviz': return new GraphvizPanel();
           case 'terminal': return new TerminalPanel();

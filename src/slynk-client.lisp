@@ -133,6 +133,7 @@ Returns a list where the first element is a keyword indicating the type:
   (:svg string) - Render SVG graphics
   (:json string) - Display formatted JSON
   (:vega-lite spec-string) - Render Vega-Lite chart
+  (:mermaid definition-string) - Render Mermaid diagram
   (:image-base64 mime-type base64-string) - Display image from base64
 Return NIL to use default ICL visualization.\"))
    (defmethod visualize (object)
