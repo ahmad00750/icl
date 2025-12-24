@@ -1,6 +1,6 @@
 SLYNK_DIR := $(wildcard ocicl/sly-*/slynk)
 
-.PHONY: all clean lint test
+.PHONY: all clean lint test check
 
 all: icl
 
@@ -24,7 +24,7 @@ clean:
 lint:
 	ocicl lint icl.asd
 
-test:
+test check:
 	sbcl --non-interactive \
 	     --eval "(require 'asdf)" \
 	     --eval "(asdf:initialize-source-registry (list :source-registry :inherit-configuration (list :directory (uiop:getcwd)) (list :tree (merge-pathnames \"ocicl/\" (uiop:getcwd))) (list :tree (merge-pathnames \"3rd-party/\" (uiop:getcwd)))))" \
