@@ -509,41 +509,17 @@ ICL aims to support multiple Common Lisp implementations. SBCL is the primary de
 ICL operates as a frontend that communicates with a backend Lisp process via the Slynk protocol (from SLY). This architecture allows ICL to work with any Common Lisp implementation, provide consistent features regardless of backend, and connect to remote Lisp processes.
 
 ```mermaid
-flowchart TB
-    subgraph Interfaces["User Interfaces"]
-        Terminal["Terminal<br/><code>$ icl</code>"]
-        Browser["Browser<br/>Package Browser, Inspector,<br/>xterm.js Terminal"]
-        Emacs["Emacs<br/>SLY/SLIME"]
-    end
+flowchart TD
+    Terminal["🖥️ Terminal"] -->|stdin/stdout| ICL
+    Browser["🌐 Browser"] -->|WebSocket| ICL
+    Emacs["📝 Emacs + SLY/SLIME"] -->|Slynk| Slynk
 
-    subgraph ICL["ICL (Interactive Common Lisp)"]
-        Editor["Multiline Editor"]
-        Commands["Command Dispatcher"]
-        Completion["Tab Completion"]
-        History["History Manager"]
-        SlynkClient["Slynk Client"]
-        BrowserServer["Browser Server<br/>(Hunchentoot)"]
-        MCPServer["MCP Server"]
-    end
+    ICL["ICL"] -->|Slynk Protocol| Slynk
+    ICL -->|HTTP| MCP["MCP Server"]
 
-    subgraph Lisp["Inferior Lisp (SBCL, CCL, ECL, ABCL, ...)"]
-        SlynkServer["Slynk Server<br/>Evaluation, Completion,<br/>Xref, Inspection"]
-        Image["User's Lisp Image"]
-    end
+    Slynk["Slynk Server"] --- Lisp["Lisp Image<br/>(SBCL, CCL, ECL, ...)"]
 
-    subgraph AI["AI CLI Tools"]
-        Claude["Claude CLI"]
-        Gemini["Gemini CLI"]
-        Codex["Codex CLI"]
-        MCP["MCP Protocol Client<br/>(read-only tools)"]
-    end
-
-    Terminal -->|stdin/stdout| ICL
-    Browser -->|WebSocket| BrowserServer
-    Emacs -->|Slynk Protocol| SlynkServer
-    SlynkClient -->|Slynk Protocol| SlynkServer
-    MCPServer -->|HTTP| MCP
-    Claude & Gemini & Codex --> MCP
+    MCP -.->|read-only| AI["AI CLIs<br/>(Claude, Gemini, Codex)"]
 ```
 
 All connections use randomly-assigned ports on localhost. When ICL starts an inferior Lisp, it finds an available port and configures Slynk to listen there. The browser interface (started with `,browser` or `icl -b`) serves a Dockview-based IDE with package browser, symbol list, inspector panels, and class hierarchy visualization. The browser automatically closes when ICL terminates. The MCP server (started on-demand by `,explain`) provides read-only AI tool integration.
