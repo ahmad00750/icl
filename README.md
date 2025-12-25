@@ -511,13 +511,15 @@ ICL operates as a frontend that communicates with a backend Lisp process via the
 ```mermaid
 flowchart TD
     Terminal["🖥️ Terminal"] -->|stdin/stdout| ICL
-    Browser["🌐 Browser"] -->|WebSocket| ICL
+    Browser["🌐 Browser"] <-->|HTTP + WebSocket| ICL
     Emacs["📝 Emacs + SLY/SLIME"] -->|Slynk| Slynk
 
     ICL["ICL"] -->|Slynk Protocol| Slynk
     ICL <-->|HTTP| MCP["MCP Server"]
 
-    Slynk["Slynk Server"] --- Lisp["Lisp Image<br/>(SBCL, CCL, ECL, ...)"]
+    subgraph Lisp["Lisp Image (SBCL, CCL, ECL, ...)"]
+        Slynk["Slynk Server"]
+    end
 
     MCP <-.->|read-only| AI["AI CLIs<br/>(Claude, Gemini, Codex)"]
 ```
