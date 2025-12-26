@@ -274,21 +274,27 @@ ws.onmessage = (e) => {
       break;
     case 'open-class-graph':
       openClassGraphPanel(msg.className, msg.packageName);
+      restoreTerminalFocus();
       break;
     case 'open-hash-table':
       openHashTablePanel(msg.title, msg.count, msg.entries, msg.sourceExpr);
+      restoreTerminalFocus();
       break;
     case 'open-svg':
       openSvgPanel(msg.title, msg.content, msg.sourceExpr);
+      restoreTerminalFocus();
       break;
     case 'open-html':
       openHtmlPanel(msg.title, msg.content, msg.sourceExpr);
+      restoreTerminalFocus();
       break;
     case 'open-json':
       openJsonPanel(msg.title, msg.content, msg.sourceExpr);
+      restoreTerminalFocus();
       break;
     case 'open-image':
       openImagePanel(msg.title, msg.imageUrl, msg.contentType, msg.sourceExpr);
+      restoreTerminalFocus();
       break;
     case 'refresh-visualizations':
       refreshAllVisualizations();
@@ -298,6 +304,7 @@ ws.onmessage = (e) => {
       break;
     case 'open-venn':
       openVennPanel(msg.setNames, msg.setMembers, msg.sourceExpr);
+      restoreTerminalFocus();
       break;
     case 'venn-refresh':
       handleVennRefresh(msg);
@@ -316,18 +323,25 @@ ws.onmessage = (e) => {
       break;
     case 'open-vega-lite':
       openVegaLitePanel(msg.title, msg.spec, msg.sourceExpr);
+      restoreTerminalFocus();
       break;
     case 'vega-lite-refresh':
       handleVegaLiteRefresh(msg);
       break;
     case 'open-mermaid':
       openMermaidPanel(msg.title, msg.definition, msg.sourceExpr);
+      restoreTerminalFocus();
       break;
     case 'mermaid-refresh':
       handleMermaidRefresh(msg);
       break;
   }
 };
+
+// Restore focus to terminal after opening visualization panels
+function restoreTerminalFocus() {
+  setTimeout(() => { if (terminal) terminal.focus(); }, 150);
+}
 
 // Open Speedscope flame graph panel
 let speedscopeCounter = 0;
