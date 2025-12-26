@@ -1445,14 +1445,10 @@ Examples:
                                  (#\& (write-string "&amp;" s))
                                  (otherwise (write-char c s))))))
                   (html (format nil "<html><head>
-<link rel='stylesheet' href='/assets/hljs-github.min.css' media='(prefers-color-scheme: light)'>
-<link rel='stylesheet' href='/assets/hljs-github-dark.min.css' media='(prefers-color-scheme: dark)'>
-<script src='/assets/highlight.min.js'></script>
 <style>
-body { padding: 1em; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
-h3 { margin-top: 0; }
-pre { margin: 0; }
-code { font-size: 13px; line-height: 1.5; }
+body { padding: 1em; margin: 0; }
+h3 { margin-top: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+pre { margin: 0; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace; font-size: 13px; line-height: 1.5; white-space: pre; overflow-x: auto; }
 @media (prefers-color-scheme: dark) {
   body { background: #0d1117; color: #c9d1d9; }
   h3 { color: #58a6ff; }
@@ -1464,8 +1460,7 @@ code { font-size: 13px; line-height: 1.5; }
 </style>
 </head><body>
 <h3>~A</h3>
-<pre><code class='language-x86asm'>~A</code></pre>
-<script>hljs.highlightAll();</script>
+<pre>~A</pre>
 </body></html>" name escaped)))
              (open-html-panel (format nil "Disassembly: ~A" name) html trimmed :sanitize nil)
              (format t "~&; Visualizing disassembly of ~A~%" name)))
