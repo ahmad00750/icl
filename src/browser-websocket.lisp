@@ -648,6 +648,11 @@
                                             (loop for k being the hash-keys of obj using (hash-value v)
                                                   for i from 0 below 100
                                                   collect (list (princ-to-string k) (princ-to-string v)))))
+                                     ;; Function - show disassembly
+                                     ((functionp obj)
+                                      (let* ((name (or (ignore-errors (sb-impl::%fun-name obj)) \"anonymous\"))
+                                             (disasm (with-output-to-string (*standard-output*) (disassemble obj))))
+                                        (list :function (princ-to-string name) disasm)))
                                      ;; Image byte array (check magic bytes)
                                      ((and (typep obj '(simple-array (unsigned-byte 8) (*)))
                                            (>= (length obj) 4)
@@ -700,6 +705,35 @@
                       (data-url (format nil "data:~A;base64,~A" mime base64)))
                  (setf (gethash "vizType" obj) "image")
                  (setf (gethash "imageUrl" obj) data-url)))
+              ((and (listp parsed) (eq (first parsed) :function))
+               (let* ((name (second parsed))
+                      (disasm (third parsed))
+                      (escaped (with-output-to-string (s)
+                                 (loop for c across disasm do
+                                   (case c
+                                     (#\< (write-string "&lt;" s))
+                                     (#\> (write-string "&gt;" s))
+                                     (#\& (write-string "&amp;" s))
+                                     (otherwise (write-char c s))))))
+                      (html (format nil "<html><head>
+<link rel='stylesheet' href='/assets/hljs-github.min.css' media='(prefers-color-scheme: light)'>
+<link rel='stylesheet' href='/assets/hljs-github-dark.min.css' media='(prefers-color-scheme: dark)'>
+<script src='/assets/highlight.min.js'></script>
+<style>
+body { padding: 1em; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+h3 { margin-top: 0; }
+pre { margin: 0; }
+code { font-size: 13px; line-height: 1.5; }
+@media (prefers-color-scheme: dark) { body { background: #0d1117; color: #c9d1d9; } h3 { color: #58a6ff; } }
+@media (prefers-color-scheme: light) { body { background: #ffffff; color: #24292f; } h3 { color: #0969da; } }
+</style>
+</head><body>
+<h3>~A</h3>
+<pre><code class='language-x86asm'>~A</code></pre>
+<script>hljs.highlightAll();</script>
+</body></html>" name escaped)))
+                 (setf (gethash "vizType" obj) "html")
+                 (setf (gethash "content" obj) html)))
               (t
                (setf (gethash "vizType" obj) "unknown")
                (setf (gethash "error" obj) (format nil "Unknown type: ~A" parsed))))
