@@ -52,7 +52,7 @@ Profile any expression with `,flame` and explore the results in an interactive [
 - **Terminal-aware colors** - Automatically detects light/dark terminal background
 - **AI integration** - Use `,explain` to get AI-powered explanations of code, errors, and results
 - **Browser interface** - Web UI with package browser, symbol list, inspector, and xterm.js terminal
-- **Data visualization** - Visualize hash tables, classes, sets, SVG, HTML, JSON, Vega-Lite charts, and Mermaid diagrams
+- **Data visualization** - Visualize hash tables, classes, sets, SVG, HTML, JSON, Vega-Lite charts, Mermaid diagrams, and function disassembly
 - **Custom visualizations** - Define `icl-runtime:visualize` methods for your own classes
 - **Flame graph profiling** - Interactive Speedscope visualizations for performance analysis (SBCL)
 - **Emacs integration** - Works with SLY/SLIME for synchronized browser visualization
@@ -265,6 +265,7 @@ The `,viz` command automatically detects the type and displays an appropriate vi
 - **Image byte arrays**: PNG, JPEG, GIF, WebP data → displayed inline
 - **SVG strings**: `"<svg>...</svg>"` → rendered SVG graphics
 - **HTML strings**: `"<!DOCTYPE html>..."` → rendered in sandboxed iframe
+- **Functions**: `#'mapcar` → disassembly output with theme-aware styling
 
 #### Venn Diagrams for FSet Sets
 
