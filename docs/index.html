@@ -23,20 +23,7 @@
 
   <header class="hero">
     <div class="hero-bg"></div>
-    <div class="floating-parens" aria-hidden="true">
-      <span class="paren paren-1">(</span>
-      <span class="paren paren-2">)</span>
-      <span class="paren paren-3">(</span>
-      <span class="paren paren-4">)</span>
-      <span class="paren paren-5">(</span>
-      <span class="paren paren-6">)</span>
-      <span class="paren paren-7">(</span>
-      <span class="paren paren-8">)</span>
-      <span class="paren paren-9">(</span>
-      <span class="paren paren-10">)</span>
-      <span class="paren paren-11">(</span>
-      <span class="paren paren-12">)</span>
-    </div>
+    <canvas id="parens-canvas" aria-hidden="true"></canvas>
     <div class="container">
       <div class="hero-content">
         <h1>Interactive Common Lisp</h1>
@@ -211,5 +198,92 @@ cd icl && ocicl install && make</code></pre>
       <p class="footer-copyright">MIT License · Created by <a href="https://github.com/atgreen">Anthony Green</a></p>
     </div>
   </footer>
+
+  <script>
+  (function() {
+    const canvas = document.getElementById('parens-canvas');
+    const ctx = canvas.getContext('2d');
+    const hero = document.querySelector('.hero');
+
+    let parens = [];
+    const COUNT = 15;
+
+    function resize() {
+      canvas.width = hero.offsetWidth;
+      canvas.height = hero.offsetHeight;
+    }
+
+    function createParen() {
+      return {
+        char: Math.random() > 0.5 ? '(' : ')',
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        z: Math.random() * 200 - 100,
+        size: 60 + Math.random() * 140,
+        speedY: -0.1 - Math.random() * 0.3,
+        speedX: (Math.random() - 0.5) * 0.2,
+        speedZ: (Math.random() - 0.5) * 0.5,
+        opacity: 0.03 + Math.random() * 0.06,
+        rotation: Math.random() * 0.2 - 0.1,
+        rotationSpeed: (Math.random() - 0.5) * 0.001
+      };
+    }
+
+    function init() {
+      resize();
+      parens = [];
+      for (let i = 0; i < COUNT; i++) {
+        parens.push(createParen());
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      parens.sort((a, b) => a.z - b.z);
+
+      parens.forEach(p => {
+        // Update position
+        p.y += p.speedY;
+        p.x += p.speedX;
+        p.z += p.speedZ;
+        p.rotation += p.rotationSpeed;
+
+        // Wrap around
+        if (p.y < -p.size) {
+          p.y = canvas.height + p.size;
+          p.x = Math.random() * canvas.width;
+        }
+        if (p.z > 100) p.speedZ = -Math.abs(p.speedZ);
+        if (p.z < -100) p.speedZ = Math.abs(p.speedZ);
+
+        // Calculate 3D scale
+        const scale = (p.z + 200) / 300;
+        const adjustedSize = p.size * scale;
+        const adjustedOpacity = p.opacity * scale;
+
+        // Draw
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rotation);
+        ctx.font = `${adjustedSize}px "JetBrains Mono", "SF Mono", Monaco, monospace`;
+        ctx.fillStyle = `rgba(124, 58, 237, ${adjustedOpacity})`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(p.char, 0, 0);
+        ctx.restore();
+      });
+
+      requestAnimationFrame(draw);
+    }
+
+    window.addEventListener('resize', () => {
+      resize();
+    });
+
+    init();
+    draw();
+  })();
+  </script>
 </body>
 </html>
