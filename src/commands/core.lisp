@@ -1182,6 +1182,7 @@ Example: ,flamegraph (my-expensive-function)"
 (define-command viz (&rest expressions)
   "Visualize data in the browser based on its type.
 Evaluates the expression and displays an appropriate visualization:
+  - Function → disassembly listing
   - Symbol (class name) → class hierarchy graph with slots
   - Hash-table → key-value table
   - FSet map → key-value table
@@ -1189,6 +1190,8 @@ Evaluates the expression and displays an appropriate visualization:
   - FSet set → Venn diagram (single or multiple sets)
 Requires browser mode to be active.
 Examples:
+  ,viz #'car                ; disassembly of CAR
+  ,viz #'my-function        ; disassembly of MY-FUNCTION
   ,viz 'hash-table          ; class hierarchy for HASH-TABLE
   ,viz 'standard-object     ; class hierarchy for STANDARD-OBJECT
   ,viz *my-hash-table*      ; hash-table contents
@@ -1282,6 +1285,14 @@ Examples:
                                             (loop for m in members
                                                   for i from 0 below 100
                                                   collect (princ-to-string m)))))
+                                   ;; Function - show disassembly
+                                   ((functionp obj)
+                                    (let* ((name (or (ignore-errors
+                                                       (sb-impl::%fun-name obj))
+                                                     \"anonymous\"))
+                                           (disasm (with-output-to-string (*standard-output*)
+                                                     (disassemble obj))))
+                                      (list :function (princ-to-string name) disasm)))
                                    ;; SVG string detection
                                    ((and (stringp obj)
                                          (let ((trimmed (string-left-trim '(#\\Space #\\Tab #\\Newline) obj)))
@@ -1423,6 +1434,32 @@ Examples:
                   (data-url (format nil "data:~A;base64,~A" mime base64)))
              (open-image-panel "Image" data-url mime trimmed)
              (format t "~&; Visualizing image (~A, ~A bytes)~%" mime (length base64))))
+          (:function
+           (let* ((name (second parsed))
+                  (disasm (third parsed))
+                  (escaped (with-output-to-string (s)
+                             (loop for c across disasm do
+                               (case c
+                                 (#\< (write-string "&lt;" s))
+                                 (#\> (write-string "&gt;" s))
+                                 (#\& (write-string "&amp;" s))
+                                 (otherwise (write-char c s))))))
+                  (html (format nil "<html><head>
+<link rel='stylesheet' href='/assets/hljs-github-dark.min.css'>
+<script src='/assets/highlight.min.js'></script>
+<style>
+body { background: #0d1117; padding: 1em; margin: 0; }
+h3 { color: #58a6ff; margin-top: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+pre { margin: 0; }
+code { font-size: 13px; line-height: 1.5; }
+</style>
+</head><body>
+<h3>~A</h3>
+<pre><code class='language-x86asm'>~A</code></pre>
+<script>hljs.highlightAll();</script>
+</body></html>" name escaped)))
+             (open-html-panel (format nil "Disassembly: ~A" name) html trimmed)
+             (format t "~&; Visualizing disassembly of ~A~%" name)))
           (:symbol
            (format t "~&; Symbol ~A is not a class name~%" (second parsed)))
           (:unknown
