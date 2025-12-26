@@ -1,5 +1,10 @@
 # ICL - Interactive Common Lisp
 
+[![CI](https://github.com/atgreen/icl/actions/workflows/ci.yaml/badge.svg)](https://github.com/atgreen/icl/actions/workflows/ci.yaml)
+[![Release](https://img.shields.io/github/v/release/atgreen/icl)](https://github.com/atgreen/icl/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](https://github.com/atgreen/icl/releases)
+
 ICL is an enhanced REPL for Common Lisp. It provides a modern interactive experience with readline-style editing, persistent history, tab completion, and an extensible command system. ICL works in your terminal, in a web browser with package browsing and data visualization, or integrated with Emacs via SLY/SLIME.
 
 ## Terminal REPL
