@@ -347,6 +347,24 @@ Return `NIL` from your method to fall back to ICL's built-in type detection.
 
 See `examples/vega.lisp` for Vega-Lite visualization and `examples/mermaid.lisp` for Mermaid diagrams.
 
+#### Security
+
+Custom visualizations are protected with multiple layers of security:
+
+| Type | Security Measures |
+|------|-------------------|
+| **HTML** | Sanitized server-side (scripts and event handlers removed), rendered in sandboxed iframe |
+| **Mermaid** | Rendered in strict mode (click handlers and JavaScript disabled) |
+| **Vega-Lite** | Expression functions disabled, AST-based evaluation only |
+| **SVG** | Protected by CSP (inline scripts and event handlers blocked) |
+
+The browser interface also enforces:
+- **Content Security Policy (CSP)** - Blocks inline scripts and restricts resource loading
+- **WebSocket origin validation** - Only accepts connections from localhost
+- **X-Frame-Options: DENY** - Prevents clickjacking
+
+These protections ensure that loading untrusted Lisp libraries with custom `visualize` methods cannot execute arbitrary JavaScript in your browser.
+
 ### Configuration
 
 | Command | Description |
