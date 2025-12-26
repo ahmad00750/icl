@@ -756,15 +756,18 @@
         (setf (gethash "sourceExpr" obj) source-expr)
         (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj))))))
 
-(defun open-html-panel (title content source-expr)
+(defun open-html-panel (title content source-expr &key (sanitize t))
   "Send message to browser to open an HTML visualization panel.
-   HTML content is sanitized to prevent XSS attacks from untrusted libraries."
+   HTML content is sanitized by default to prevent XSS attacks from untrusted libraries.
+   Set SANITIZE to NIL for trusted ICL-generated content."
   (when *repl-resource*
     (dolist (client (hunchensocket:clients *repl-resource*))
       (let ((obj (make-hash-table :test 'equal)))
         (setf (gethash "type" obj) "open-html")
         (setf (gethash "title" obj) title)
-        (setf (gethash "content" obj) (sanitize-visualization-html content))
+        (setf (gethash "content" obj) (if sanitize
+                                          (sanitize-visualization-html content)
+                                          content))
         (setf (gethash "sourceExpr" obj) source-expr)
         (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj))))))
 

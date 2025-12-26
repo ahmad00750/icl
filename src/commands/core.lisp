@@ -1467,7 +1467,7 @@ code { font-size: 13px; line-height: 1.5; }
 <pre><code class='language-x86asm'>~A</code></pre>
 <script>hljs.highlightAll();</script>
 </body></html>" name escaped)))
-             (open-html-panel (format nil "Disassembly: ~A" name) html trimmed)
+             (open-html-panel (format nil "Disassembly: ~A" name) html trimmed :sanitize nil)
              (format t "~&; Visualizing disassembly of ~A~%" name)))
           (:symbol
            (format t "~&; Symbol ~A is not a class name~%" (second parsed)))
