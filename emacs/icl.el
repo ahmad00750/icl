@@ -187,8 +187,11 @@ on REPL input, C-x C-e, C-c C-c, and other evaluation commands."
   (interactive)
   (unless (icl--connected-p)
     (user-error "No active SLY/SLIME connection"))
-  (when (get-process "icl")
-    (user-error "ICL already running. Use M-x icl-stop first"))
+  (when-let ((proc (get-process "icl")))
+    (if (process-live-p proc)
+        (user-error "ICL already running. Use M-x icl-stop first")
+      ;; Process exists but is dead - clean it up
+      (delete-process proc)))
   (icl--maybe-install-sly-hooks)
   ;; Set up eval generation counter for visualization refresh
   (icl--setup-eval-hook)
