@@ -144,3 +144,71 @@ jobs:
           echo "$output"
           # Should list some symbols or show empty package message
           echo ",ls command completed successfully"
+
+      - name: Test multiple values
+        run: |
+          output=$(printf '(values 1 2 3)\n,quit\n' | timeout 120s ./icl --lisp ${{ matrix.backend }} 2>&1) || true
+          echo "$output"
+          echo "$output" | grep -q "1" || (echo "FAIL: Expected first value 1" && exit 1)
+          echo "$output" | grep -q "2" || (echo "FAIL: Expected second value 2" && exit 1)
+          echo "$output" | grep -q "3" || (echo "FAIL: Expected third value 3" && exit 1)
+
+      - name: Test defun and function call
+        run: |
+          output=$(printf '(defun square (x) (* x x))\n(square 7)\n,quit\n' | timeout 120s ./icl --lisp ${{ matrix.backend }} 2>&1) || true
+          echo "$output"
+          echo "$output" | grep -q "49" || (echo "FAIL: Expected result 49 from (square 7)" && exit 1)
+
+      - name: Test string output
+        run: |
+          output=$(printf '(format t "Hello from ~A" (lisp-implementation-type))\n,quit\n' | timeout 120s ./icl --lisp ${{ matrix.backend }} 2>&1) || true
+          echo "$output"
+          echo "$output" | grep -qi "Hello from" || (echo "FAIL: Expected format output" && exit 1)
+
+      - name: Test ,help command
+        run: |
+          output=$(printf ',help\n,quit\n' | timeout 120s ./icl --lisp ${{ matrix.backend }} 2>&1) || true
+          echo "$output"
+          # Help should list available commands
+          echo "$output" | grep -qi "quit\|help\|info" || (echo "FAIL: Expected help to list commands" && exit 1)
+
+      - name: Test ,doc command
+        run: |
+          output=$(printf ',doc car\n,quit\n' | timeout 120s ./icl --lisp ${{ matrix.backend }} 2>&1) || true
+          echo "$output"
+          # Should show documentation for CAR function
+          echo ",doc command completed successfully"
+
+      - name: Test ,apropos command
+        run: |
+          output=$(printf ',apropos print\n,quit\n' | timeout 120s ./icl --lisp ${{ matrix.backend }} 2>&1) || true
+          echo "$output"
+          # Should find print-related symbols
+          echo "$output" | grep -qi "print" || (echo "FAIL: Expected apropos to find print symbols" && exit 1)
+
+      - name: Test package change with ,in
+        run: |
+          output=$(printf ',in cl\n,pwd\n,quit\n' | timeout 120s ./icl --lisp ${{ matrix.backend }} 2>&1) || true
+          echo "$output"
+          # Should show COMMON-LISP package
+          echo "$output" | grep -qi "COMMON-LISP\|CL" || (echo "FAIL: Expected CL package after ,in cl" && exit 1)
+
+      - name: Test --eval flag
+        run: |
+          output=$(timeout 120s ./icl --lisp ${{ matrix.backend }} --eval "(* 6 7)" 2>&1) || true
+          echo "$output"
+          echo "$output" | grep -q "42" || (echo "FAIL: Expected --eval result 42" && exit 1)
+
+      - name: Test error handling
+        run: |
+          output=$(printf '(/ 1 0)\n,quit\n' | timeout 120s ./icl --lisp ${{ matrix.backend }} 2>&1) || true
+          echo "$output"
+          # Should report division by zero error, not crash
+          echo "$output" | grep -qi "error\|division\|zero\|condition" || (echo "FAIL: Expected error message for division by zero" && exit 1)
+
+      - name: Test loop and collect
+        run: |
+          output=$(printf '(loop for i from 1 to 5 collect (* i i))\n,quit\n' | timeout 120s ./icl --lisp ${{ matrix.backend }} 2>&1) || true
+          echo "$output"
+          echo "$output" | grep -q "1" || (echo "FAIL: Expected 1 in loop result" && exit 1)
+          echo "$output" | grep -q "25" || (echo "FAIL: Expected 25 in loop result" && exit 1)
