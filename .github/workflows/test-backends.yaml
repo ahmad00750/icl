@@ -81,16 +81,17 @@ jobs:
       matrix:
         include:
           - backend: sbcl
-            roswell: sbcl-bin
+            install: sudo apt-get install -y sbcl
           - backend: ccl
-            roswell: ccl-bin
+            install: |
+              curl -L -o /tmp/ccl.tar.gz https://github.com/Clozure/ccl/releases/download/v1.12.2/ccl-1.12.2-linuxx86.tar.gz
+              sudo tar -xzf /tmp/ccl.tar.gz -C /usr/local
+              sudo ln -s /usr/local/ccl/lx86cl64 /usr/local/bin/ccl
           - backend: ecl
-            roswell: ecl
+            install: sudo apt-get install -y ecl
           - backend: abcl
-            roswell: abcl-bin
+            install: sudo apt-get install -y abcl
     runs-on: ubuntu-latest
-    env:
-      LISP: ${{ matrix.roswell }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -104,8 +105,13 @@ jobs:
       - name: Make ICL executable
         run: chmod +x ./icl
 
-      - name: Install ${{ matrix.backend }} via Roswell
-        uses: 40ants/setup-lisp@v4
+      - name: Install ${{ matrix.backend }}
+        run: |
+          sudo apt-get update
+          ${{ matrix.install }}
+
+      - name: Verify ${{ matrix.backend }} is installed
+        run: which ${{ matrix.backend }} && ${{ matrix.backend }} --version || ${{ matrix.backend }} --help || true
 
       - name: Test basic evaluation
         run: |
