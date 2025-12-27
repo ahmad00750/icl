@@ -53,7 +53,7 @@
       (format *error-output* "~&; Failed to connect to Slynk: ~A~%" e)
       nil)))
 
-;; ICL Runtime - Phase 1: Create package
+;; ICL Runtime - Phase 1: Create package and ensure exports
 (defvar *icl-runtime-phase1*
   "(cl:progn
      (cl:unless (cl:find-package :icl-runtime)
@@ -63,8 +63,14 @@
                   #:*eval-generation*
                   #:setup-eval-generation-hook
                   #:visualize)))
+     ;; Ensure symbols are exported even if package already existed
+     (cl:export '(icl-runtime::usb8-array-to-base64-string
+                  icl-runtime::*eval-generation*
+                  icl-runtime::setup-eval-generation-hook
+                  icl-runtime::visualize)
+                :icl-runtime)
      t)"
-  "Phase 1: Create the ICL runtime package.")
+  "Phase 1: Create the ICL runtime package and ensure exports.")
 
 ;; ICL Runtime - Phase 2: Define functions (load as a file)
 ;; Using LOAD with a string stream ensures proper top-level processing
