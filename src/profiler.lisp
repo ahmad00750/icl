@@ -54,7 +54,6 @@ MAX-SAMPLES is the maximum number of samples to collect (default 1000000)."
                                                (sb-sprof:with-profiling (:mode ~S
                                                                          :sample-interval ~A
                                                                          :max-samples ~A
-                                                                         :threads nil
                                                                          :report nil)
                                                  (setf result (multiple-value-list ~A)))
                                                (setf (car result-box) result))
