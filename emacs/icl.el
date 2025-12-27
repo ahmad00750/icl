@@ -6,13 +6,18 @@
 ;; Author: Anthony Green <green@moxielogic.com>
 ;; Maintainer: Anthony Green <green@moxielogic.com>
 ;; URL: https://github.com/moxielogic/icl
-;; Version: 1.16.2
+;; Version: 1.17.0
 ;; Package-Requires: ((emacs "26.1"))
 ;; Keywords: lisp, tools, repl
 
 ;;; Commentary:
 ;; Provides integration between SLY/SLIME and ICL's browser visualization interface.
-;; Start ICL browser with M-x icl when you have an active Sly connection.
+;; Start ICL browser with M-x icl when you have an active SLY/SLIME connection.
+;;
+;; Multiple connections are supported - each SLY/SLIME connection can have its
+;; own ICL browser instance. Use M-x icl-list to see running instances,
+;; M-x icl-stop to stop the current connection's ICL, or M-x icl-stop-all
+;; to stop all instances.
 
 ;;; Code:
 
@@ -40,8 +45,9 @@
   :type 'boolean
   :group 'icl)
 
-(defvar icl--slynk-port nil
-  "Port of the Slynk server created for ICL.")
+(defvar icl--connections (make-hash-table :test 'eq)
+  "Hash table mapping SLY/SLIME connections to ICL state.
+Each entry is a plist with :port, :process, and :buffer keys.")
 
 (defvar icl--sly-hooks-installed nil
   "Non-nil when disconnect hooks have been installed.")
@@ -69,6 +75,30 @@
     ('sly (and (fboundp 'sly-current-connection) (sly-current-connection)))
     ('slime (or (and (fboundp 'slime-connected-p) (slime-connected-p))
                 (and (fboundp 'slime-current-connection) (slime-current-connection))))))
+
+(defun icl--current-connection ()
+  "Return the current SLY/SLIME connection object."
+  (pcase (icl--backend)
+    ('sly (and (fboundp 'sly-current-connection) (sly-current-connection)))
+    ('slime (and (fboundp 'slime-current-connection) (slime-current-connection)))))
+
+(defun icl--connection-name (conn)
+  "Return a short name for connection CONN."
+  (pcase (icl--backend)
+    ('sly (if (and (fboundp 'sly-connection-name) conn)
+              (sly-connection-name conn)
+            "default"))
+    ('slime (if (and (fboundp 'slime-connection-name) conn)
+                (slime-connection-name conn)
+              "default"))))
+
+(defun icl--process-name (&optional conn)
+  "Return unique process name for connection CONN."
+  (format "icl<%s>" (icl--connection-name (or conn (icl--current-connection)))))
+
+(defun icl--buffer-name (&optional conn)
+  "Return unique buffer name for connection CONN."
+  (format "*icl<%s>*" (icl--connection-name (or conn (icl--current-connection)))))
 
 (defun icl--eval (form)
   "Evaluate FORM in the backend connection."
@@ -99,10 +129,13 @@ Uses Slynk for SLY backend, Swank for SLIME backend."
                (error "Failed to load Swank: ~A" e))))
          (swank:create-server :port 0 :dont-close t))))))
 
-(defun icl--on-sly-disconnect (&rest _)
-  "Stop ICL shortly after the connection disconnects."
+(defun icl--on-sly-disconnect (&optional conn &rest _)
+  "Stop ICL for connection CONN when it disconnects."
   (when icl-auto-stop-on-disconnect
-    (run-at-time 0.2 nil #'icl-stop)))
+    ;; Use the passed connection or try to determine from context
+    (let ((connection (or conn (icl--current-connection))))
+      (when connection
+        (run-at-time 0.2 nil #'icl--stop-for-connection connection)))))
 
 (defun icl--maybe-install-sly-hooks ()
   "Install hooks to stop ICL when the connection disconnects."
@@ -181,38 +214,91 @@ on REPL input, C-x C-e, C-c C-c, and other evaluation commands."
   ;; Call the setup function to install the hook
   (icl--eval '(icl-runtime:setup-eval-generation-hook)))
 
+(defun icl--stop-for-connection (conn)
+  "Stop ICL process for connection CONN and clean up state."
+  (when-let ((state (gethash conn icl--connections)))
+    (when-let ((proc (plist-get state :process)))
+      (when (process-live-p proc)
+        (kill-process proc)))
+    (remhash conn icl--connections)))
+
 ;;;###autoload
 (defun icl ()
   "Start ICL browser connected to the current Sly session."
   (interactive)
   (unless (icl--connected-p)
     (user-error "No active SLY/SLIME connection"))
-  (when-let ((proc (get-process "icl")))
-    (if (process-live-p proc)
-        (user-error "ICL already running. Use M-x icl-stop first")
-      ;; Process exists but is dead - clean it up
-      (delete-process proc)))
+  (let* ((conn (icl--current-connection))
+         (state (gethash conn icl--connections))
+         (existing-proc (and state (plist-get state :process))))
+    ;; Check if ICL is already running for this connection
+    (when existing-proc
+      (if (process-live-p existing-proc)
+          (user-error "ICL already running for this connection. Use M-x icl-stop first")
+        ;; Process exists but is dead - clean it up
+        (remhash conn icl--connections))))
   (icl--maybe-install-sly-hooks)
   ;; Set up eval generation counter for visualization refresh
   (icl--setup-eval-hook)
   ;; Create a Slynk/Swank server that accepts connections
-  (let ((port (icl--ensure-server-and-create)))
-    (setq icl--slynk-port port)
-    (message "ICL connecting on port %d" port)
-    (start-process "icl" "*icl*" icl-program
-                   "--connect" (format "localhost:%d" port) "-b")))
+  (let* ((conn (icl--current-connection))
+         (port (icl--ensure-server-and-create))
+         (proc-name (icl--process-name conn))
+         (buf-name (icl--buffer-name conn))
+         (proc (start-process proc-name buf-name icl-program
+                              "--connect" (format "localhost:%d" port) "-b")))
+    ;; Store state for this connection
+    (puthash conn (list :port port :process proc :buffer buf-name) icl--connections)
+    (message "ICL connecting on port %d for %s" port (icl--connection-name conn))))
 
 ;;;###autoload
 (defun icl-stop ()
-  "Stop ICL process."
+  "Stop ICL process for the current connection."
   (interactive)
-  (when-let ((proc (get-process "icl")))
-    (kill-process proc)
-    (message "ICL stopped")))
+  (let ((conn (icl--current-connection)))
+    (if (gethash conn icl--connections)
+        (progn
+          (icl--stop-for-connection conn)
+          (message "ICL stopped for %s" (icl--connection-name conn)))
+      (message "No ICL running for current connection"))))
+
+;;;###autoload
+(defun icl-stop-all ()
+  "Stop all ICL processes."
+  (interactive)
+  (let ((count 0))
+    (maphash (lambda (conn state)
+               (when-let ((proc (plist-get state :process)))
+                 (when (process-live-p proc)
+                   (kill-process proc)
+                   (cl-incf count))))
+             icl--connections)
+    (clrhash icl--connections)
+    (message "Stopped %d ICL instance(s)" count)))
+
+;;;###autoload
+(defun icl-list ()
+  "List all running ICL instances."
+  (interactive)
+  (if (zerop (hash-table-count icl--connections))
+      (message "No ICL instances running")
+    (let ((instances '()))
+      (maphash (lambda (conn state)
+                 (let ((proc (plist-get state :process))
+                       (port (plist-get state :port)))
+                   (push (format "  %s (port %d) - %s"
+                                 (icl--connection-name conn)
+                                 port
+                                 (if (and proc (process-live-p proc))
+                                     "running"
+                                   "dead"))
+                         instances)))
+               icl--connections)
+      (message "ICL instances:\n%s" (string-join (nreverse instances) "\n")))))
 
 ;;;###autoload
 (defun icl-restart ()
-  "Restart ICL."
+  "Restart ICL for the current connection."
   (interactive)
   (icl-stop)
   (run-at-time 0.5 nil #'icl))

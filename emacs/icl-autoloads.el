@@ -9,6 +9,8 @@
 
 ;;;###autoload (autoload 'icl "icl" nil t)
 ;;;###autoload (autoload 'icl-stop "icl" nil t)
+;;;###autoload (autoload 'icl-stop-all "icl" nil t)
+;;;###autoload (autoload 'icl-list "icl" nil t)
 ;;;###autoload (autoload 'icl-restart "icl" nil t)
 
 (provide 'icl-autoloads)
