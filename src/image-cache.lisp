@@ -39,12 +39,48 @@
               "unknown"))
         "unknown")))
 
+;;; -------------------------------------------------------------------------
+;;; Init File Hashing
+;;; -------------------------------------------------------------------------
+
+(defun sbcl-init-file-path ()
+  "Return the path to the user's SBCL init file (.sbclrc).
+   Returns NIL if not found."
+  (let ((sbclrc (merge-pathnames ".sbclrc" (user-homedir-pathname))))
+    (when (probe-file sbclrc)
+      sbclrc)))
+
+(defun file-content-hash (path)
+  "Compute a short hash of file contents for cache invalidation.
+   Returns a 8-character hex string, or 'noinit' if file doesn't exist."
+  (if (and path (probe-file path))
+      (let ((hash 0))
+        ;; Simple but effective: FNV-1a-like hash of file contents
+        (with-open-file (stream path :element-type '(unsigned-byte 8))
+          (loop for byte = (read-byte stream nil nil)
+                while byte
+                do (setf hash (logxor hash byte))
+                   (setf hash (logand #xFFFFFFFF
+                                      (* hash 16777619)))))
+        ;; Return first 8 hex chars
+        (subseq (format nil "~8,'0X" (logand hash #xFFFFFFFF)) 0 8))
+      "noinit"))
+
+(defun sbcl-init-hash ()
+  "Get hash of user's .sbclrc for cache key.
+   Changes to .sbclrc will invalidate the cached image."
+  (file-content-hash (sbcl-init-file-path)))
+
 (defun cached-sbcl-image-path ()
   "Return the path for the cached SBCL+Slynk image.
-   Includes both SBCL and ICL versions in filename for automatic invalidation."
+   Includes SBCL version, ICL version, and .sbclrc hash for automatic invalidation.
+   The init hash ensures cache rebuilds when user modifies their .sbclrc
+   (e.g., adding Quicklisp), so --eval expressions have access to init-time setup."
   (let ((sbcl-version (sbcl-version-string))
-        (icl-version +version+))
-    (merge-pathnames (format nil "icl-~A-sbcl-~A-slynk.core" icl-version sbcl-version)
+        (icl-version +version+)
+        (init-hash (sbcl-init-hash)))
+    (merge-pathnames (format nil "icl-~A-sbcl-~A-~A.core"
+                             icl-version sbcl-version init-hash)
                      (icl-cache-directory))))
 
 (defun cached-sbcl-image-exists-p ()
@@ -159,9 +195,9 @@
 (defun clear-image-cache ()
   "Remove all cached SBCL images."
   (let ((cache-dir (icl-cache-directory)))
-    ;; Match both old-style (sbcl-*) and new-style (icl-*) cached images
+    ;; Match all cached image formats (old and new naming schemes)
     (dolist (file (append (directory (merge-pathnames "sbcl-*-slynk.core" cache-dir))
-                          (directory (merge-pathnames "icl-*-slynk.core" cache-dir))))
+                          (directory (merge-pathnames "icl-*.core" cache-dir))))
       (format t "~&; Removing ~A~%" file)
       (delete-file file))
     (format t "~&; Image cache cleared~%")))
@@ -170,11 +206,15 @@
   "Display information about the image cache."
   (let* ((cache-dir (icl-cache-directory))
          (images (append (directory (merge-pathnames "sbcl-*-slynk.core" cache-dir))
-                         (directory (merge-pathnames "icl-*-slynk.core" cache-dir))))
-         (current-path (cached-sbcl-image-path)))
+                         (directory (merge-pathnames "icl-*.core" cache-dir))))
+         (current-path (cached-sbcl-image-path))
+         (init-file (sbcl-init-file-path))
+         (init-hash (sbcl-init-hash)))
     (format t "~&Cache directory: ~A~%" cache-dir)
     (format t "ICL version: ~A~%" +version+)
     (format t "SBCL version: ~A~%" (sbcl-version-string))
+    (format t "Init file: ~A~%" (or init-file "(none)"))
+    (format t "Init hash: ~A~%" init-hash)
     (format t "Expected image: ~A~%" (file-namestring current-path))
     (if images
         (progn
