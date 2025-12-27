@@ -46,46 +46,49 @@ MAX-SAMPLES is the maximum number of samples to collect (default 1000000)."
                       ;; Run profiling in a separate thread to isolate SIGPROF signals
                       ;; from the Slynk server's socket operations
                       (let ((result-box (list nil))
-                            (error-box (list nil)))
-                        (let ((thread (sb-thread:make-thread
-                                       (lambda ()
-                                         (handler-case
-                                             (let ((result nil))
-                                               (sb-sprof:with-profiling (:mode ~S
-                                                                         :sample-interval ~A
-                                                                         :max-samples ~A
-                                                                         :report nil)
-                                                 (setf result (multiple-value-list ~A)))
-                                               (setf (car result-box) result))
-                                           (error (e)
-                                             (setf (car error-box) (princ-to-string e)))))
-                                       :name \"profiler-thread\")))
-                          (sb-thread:join-thread thread))
+                            (error-box (list nil))
+                            (profiler-thread nil))
+                        (setf profiler-thread
+                              (sb-thread:make-thread
+                               (lambda ()
+                                 (handler-case
+                                     (let ((result nil))
+                                       (sb-sprof:with-profiling (:mode ~S
+                                                                 :sample-interval ~A
+                                                                 :max-samples ~A
+                                                                 :report nil)
+                                         (setf result (multiple-value-list ~A)))
+                                       (setf (car result-box) result))
+                                   (error (e)
+                                     (setf (car error-box) (princ-to-string e)))))
+                               :name \"profiler-thread\"))
+                        (sb-thread:join-thread profiler-thread)
                         (when (car error-box)
                           (error (car error-box)))
                         ;; Build call graph (required before map-traces)
                         (sb-sprof:report :stream (make-broadcast-stream))
                         ;; Generate folded stacks like cl-flamegraph does
                         ;; Build a tree like cl-flamegraph and count at each node
+                        ;; Only include traces from our profiler thread, not Slynk threads
                         (let ((root (make-hash-table :test #'equal))
                               (trace-count 0))
                           (sb-sprof:map-traces
                            (lambda (thread trace)
-                             (declare (ignore thread))
-                             (incf trace-count)
-                             (let ((current root))
-                               (sb-sprof::map-trace-pc-locs
-                                (lambda (info pc-or-offset)
-                                  (declare (ignore pc-or-offset))
-                                  (when info
-                                    (let* ((name (get-name info))
-                                           (child (gethash name current)))
-                                      (unless child
-                                        (setf child (cons 0 (make-hash-table :test #'equal)))
-                                        (setf (gethash name current) child))
-                                      (incf (car child))
-                                      (setf current (cdr child)))))
-                                trace)))
+                             (when (eq thread profiler-thread)
+                               (incf trace-count)
+                               (let ((current root))
+                                 (sb-sprof::map-trace-pc-locs
+                                  (lambda (info pc-or-offset)
+                                    (declare (ignore pc-or-offset))
+                                    (when info
+                                      (let* ((name (get-name info))
+                                             (child (gethash name current)))
+                                        (unless child
+                                          (setf child (cons 0 (make-hash-table :test #'equal)))
+                                          (setf (gethash name current) child))
+                                        (incf (car child))
+                                        (setf current (cdr child)))))
+                                  trace))))
                            sb-sprof::*samples*)
                           ;; Convert tree to folded stacks
                           (with-output-to-string (s)
