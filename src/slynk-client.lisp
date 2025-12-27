@@ -59,14 +59,16 @@
      (cl:unless (cl:find-package :icl-runtime)
        (cl:defpackage #:icl-runtime
          (:use #:cl)
-         (:export #:usb8-array-to-base64-string
+         (:export #:+version+
+                  #:usb8-array-to-base64-string
                   #:*eval-generation*
                   #:setup-eval-generation-hook
                   #:visualize)))
      ;; Ensure symbols are exported even if package already existed
      ;; Use intern to get symbols in the inferior Lisp's context
      (cl:let ((pkg (cl:find-package :icl-runtime)))
-       (cl:export (cl:list (cl:intern \"USB8-ARRAY-TO-BASE64-STRING\" pkg)
+       (cl:export (cl:list (cl:intern \"+VERSION+\" pkg)
+                           (cl:intern \"USB8-ARRAY-TO-BASE64-STRING\" pkg)
                            (cl:intern \"*EVAL-GENERATION*\" pkg)
                            (cl:intern \"SETUP-EVAL-GENERATION-HOOK\" pkg)
                            (cl:intern \"VISUALIZE\" pkg))
@@ -76,8 +78,10 @@
 
 ;; ICL Runtime - Phase 2: Define functions (load as a file)
 ;; Using LOAD with a string stream ensures proper top-level processing
-(defvar *icl-runtime-phase2*
+(defvar *icl-runtime-phase2-template*
   "(in-package :icl-runtime)
+   ;; Runtime version (matches ICL version that injected it)
+   (defvar +version+ ~S)
    ;; Base64 encoding (only define if not already present)
    (defvar *base64-chars*
      \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\")
@@ -107,33 +111,35 @@
        (when (> pad 1)
          (setf (char out (- (length out) 2)) #\\=))
        out)))
-   ;; Eval generation tracking - only for real REPL activity
+   ;; Eval generation tracking - for REPL and editor interactions
    (defvar *eval-generation* 0)
    (defvar *eval-hook-installed* nil)
-   (defvar *original-mrepl-eval* nil)
-   (defvar *original-listener-eval* nil)
    ;; Only define if not already defined (avoids redefinition warnings on reconnect)
    (unless (fboundp 'setup-eval-generation-hook)
+     ;; Helper to wrap a function with eval-generation increment
+     (defun wrap-with-generation-increment (pkg-name fn-name)
+       (let* ((pkg (find-package pkg-name))
+              (fn-symbol (and pkg (find-symbol fn-name pkg))))
+         (when (and fn-symbol (fboundp fn-symbol))
+           (let ((original (fdefinition fn-symbol)))
+             (setf (fdefinition fn-symbol)
+                   (lambda (&rest args)
+                     (prog1 (apply original args)
+                       (incf *eval-generation*))))))))
      (defun setup-eval-generation-hook ()
        (unless *eval-hook-installed*
-         ;; SLY uses slynk-mrepl::mrepl-eval for REPL evaluations
-         (when (find-package :slynk-mrepl)
-           (let ((fn-symbol (find-symbol \"MREPL-EVAL\" :slynk-mrepl)))
-             (when (and fn-symbol (fboundp fn-symbol))
-               (setf *original-mrepl-eval* (fdefinition fn-symbol))
-               (setf (fdefinition fn-symbol)
-                     (lambda (repl string)
-                       (prog1 (funcall *original-mrepl-eval* repl string)
-                         (incf *eval-generation*)))))))
-         ;; SLIME uses swank::listener-eval for REPL evaluations
-         (when (find-package :swank)
-           (let ((fn-symbol (find-symbol \"LISTENER-EVAL\" :swank)))
-             (when (and fn-symbol (fboundp fn-symbol))
-               (setf *original-listener-eval* (fdefinition fn-symbol))
-               (setf (fdefinition fn-symbol)
-                     (lambda (string)
-                       (prog1 (funcall *original-listener-eval* string)
-                         (incf *eval-generation*)))))))
+         ;; SLY hooks
+         (wrap-with-generation-increment :slynk-mrepl \"MREPL-EVAL\")
+         (wrap-with-generation-increment :slynk \"INTERACTIVE-EVAL\")
+         (wrap-with-generation-increment :slynk \"EVAL-AND-GRAB-OUTPUT\")
+         (wrap-with-generation-increment :slynk \"PPRINT-EVAL\")
+         (wrap-with-generation-increment :slynk \"COMPILE-STRING-FOR-EMACS\")
+         ;; SLIME hooks
+         (wrap-with-generation-increment :swank \"LISTENER-EVAL\")
+         (wrap-with-generation-increment :swank \"INTERACTIVE-EVAL\")
+         (wrap-with-generation-increment :swank \"EVAL-AND-GRAB-OUTPUT\")
+         (wrap-with-generation-increment :swank \"PPRINT-EVAL\")
+         (wrap-with-generation-increment :swank \"COMPILE-STRING-FOR-EMACS\")
          (setf *eval-hook-installed* t))
        t))
    ;; Custom visualization generic function (only define if not exists)
@@ -152,13 +158,13 @@ Return NIL to use default ICL visualization.\"))
        \"Default method returns NIL to use built-in visualization.\"
        (declare (ignore object))
        nil))"
-  "Phase 2: Define ICL runtime functions.")
+  "Phase 2 template: Define ICL runtime functions. Use ~S for version.")
 
 (defun inject-icl-runtime ()
   "Inject the ICL runtime package into the connected inferior Lisp."
   (when *slynk-connected-p*
     (handler-case
-        (progn
+        (let ((phase2-code (format nil *icl-runtime-phase2-template* +version+)))
           ;; Phase 1: Create the package
           (slynk-client:slime-eval
            (read-from-string *icl-runtime-phase1*)
@@ -167,7 +173,7 @@ Return NIL to use default ICL visualization.\"))
           ;; LOAD processes each form as a top-level form, so defvar/defun work correctly
           ;; Use CL-USER:: for the stream variable to avoid ICL package references
           (slynk-client:slime-eval
-           `(cl:with-input-from-string (cl-user::icl-load-stream ,*icl-runtime-phase2*)
+           `(cl:with-input-from-string (cl-user::icl-load-stream ,phase2-code)
               (cl:load cl-user::icl-load-stream)
               t)
            *slynk-connection*))

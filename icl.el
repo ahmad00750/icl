@@ -138,36 +138,40 @@ Uses Slynk for SLY backend, Swank for SLIME backend."
   "(in-package :icl-runtime)
    (defvar *eval-generation* 0)
    (defvar *eval-hook-installed* nil)
-   (defvar *original-mrepl-eval* nil)
-   (defvar *original-listener-eval* nil)
-   (defun setup-eval-generation-hook ()
-     (unless *eval-hook-installed*
-       ;; SLY uses slynk-mrepl::mrepl-eval for REPL evaluations
-       (when (find-package :slynk-mrepl)
-         (let ((fn-symbol (find-symbol \"MREPL-EVAL\" :slynk-mrepl)))
-           (when (and fn-symbol (fboundp fn-symbol))
-             (setf *original-mrepl-eval* (fdefinition fn-symbol))
+   ;; Only define if not already defined (avoids redefinition warnings on reconnect)
+   (unless (fboundp 'setup-eval-generation-hook)
+     ;; Helper to wrap a function with eval-generation increment
+     (defun wrap-with-generation-increment (pkg-name fn-name)
+       (let* ((pkg (find-package pkg-name))
+              (fn-symbol (and pkg (find-symbol fn-name pkg))))
+         (when (and fn-symbol (fboundp fn-symbol))
+           (let ((original (fdefinition fn-symbol)))
              (setf (fdefinition fn-symbol)
-                   (lambda (repl string)
-                     (prog1 (funcall *original-mrepl-eval* repl string)
-                       (incf *eval-generation*)))))))
-       ;; SLIME uses swank::listener-eval for REPL evaluations
-       (when (find-package :swank)
-         (let ((fn-symbol (find-symbol \"LISTENER-EVAL\" :swank)))
-           (when (and fn-symbol (fboundp fn-symbol))
-             (setf *original-listener-eval* (fdefinition fn-symbol))
-             (setf (fdefinition fn-symbol)
-                   (lambda (string)
-                     (prog1 (funcall *original-listener-eval* string)
-                       (incf *eval-generation*)))))))
-       (setf *eval-hook-installed* t))
-     t)"
+                   (lambda (&rest args)
+                     (prog1 (apply original args)
+                       (incf *eval-generation*))))))))
+     (defun setup-eval-generation-hook ()
+       (unless *eval-hook-installed*
+         ;; SLY hooks
+         (wrap-with-generation-increment :slynk-mrepl \"MREPL-EVAL\")
+         (wrap-with-generation-increment :slynk \"INTERACTIVE-EVAL\")
+         (wrap-with-generation-increment :slynk \"EVAL-AND-GRAB-OUTPUT\")
+         (wrap-with-generation-increment :slynk \"PPRINT-EVAL\")
+         (wrap-with-generation-increment :slynk \"COMPILE-STRING-FOR-EMACS\")
+         ;; SLIME hooks
+         (wrap-with-generation-increment :swank \"LISTENER-EVAL\")
+         (wrap-with-generation-increment :swank \"INTERACTIVE-EVAL\")
+         (wrap-with-generation-increment :swank \"EVAL-AND-GRAB-OUTPUT\")
+         (wrap-with-generation-increment :swank \"PPRINT-EVAL\")
+         (wrap-with-generation-increment :swank \"COMPILE-STRING-FOR-EMACS\")
+         (setf *eval-hook-installed* t))
+       t))"
   "Phase 2: Define ICL runtime functions.")
 
 (defun icl--setup-eval-hook ()
   "Set up eval generation counter in the Lisp image.
-Uses icl-runtime package with wrappers around REPL eval functions
-\(slynk-mrepl::mrepl-eval for SLY, swank::listener-eval for SLIME)."
+Wraps various Slynk/Swank eval functions to increment *eval-generation*
+on REPL input, C-x C-e, C-c C-c, and other evaluation commands."
   ;; Phase 1: Create the package
   (icl--eval (read icl--runtime-phase1))
   ;; Phase 2: Load definitions via string stream

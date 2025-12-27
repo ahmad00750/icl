@@ -46,6 +46,7 @@ slynk.zip: $(SLYNK_DIR)/*
 	     --quit
 
 icl: slynk.zip src/*.lisp *.asd
+	rm -rf ~/.cache/icl/*
 	sbcl --eval "(require 'asdf)" \
 	     --eval "(asdf:initialize-source-registry (list :source-registry :inherit-configuration (list :directory (uiop:getcwd)) (list :tree (merge-pathnames \"ocicl/\" (uiop:getcwd))) (list :tree (merge-pathnames \"3rd-party/\" (uiop:getcwd)))))" \
 	     --eval "(asdf:make :icl)" --quit
