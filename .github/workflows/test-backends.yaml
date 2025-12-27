@@ -79,8 +79,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        backend: [sbcl, ccl, ecl, abcl]
+        include:
+          - backend: sbcl
+            roswell: sbcl-bin
+          - backend: ccl
+            roswell: ccl-bin
+          - backend: ecl
+            roswell: ecl
+          - backend: abcl
+            roswell: abcl-bin
     runs-on: ubuntu-latest
+    env:
+      LISP: ${{ matrix.roswell }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -94,10 +104,8 @@ jobs:
       - name: Make ICL executable
         run: chmod +x ./icl
 
-      - name: Install ${{ matrix.backend }}
+      - name: Install ${{ matrix.backend }} via Roswell
         uses: 40ants/setup-lisp@v4
-        with:
-          implementation: ${{ matrix.backend }}
 
       - name: Test basic evaluation
         run: |
