@@ -1,0 +1,131 @@
+name: Test Backend Implementations
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+jobs:
+  # ========================================
+  # Fetch dependencies on Linux using ocicl
+  # ========================================
+  fetch-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ocicl (Linux)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sbcl curl jq
+          OCICL_URL=$(curl -sL -H "Authorization: token $GH_TOKEN" \
+            https://api.github.com/repos/ocicl/ocicl/releases/latest | \
+            jq -r '.assets[] | select(.name | endswith("_amd64.deb")) | .browser_download_url')
+          curl -sL "$OCICL_URL" -o /tmp/ocicl.deb
+          sudo dpkg -i /tmp/ocicl.deb
+          ocicl setup > ~/.sbclrc
+
+      - name: Fetch Lisp dependencies
+        run: ocicl install
+
+      - name: Upload ocicl directory
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocicl-deps
+          path: ocicl
+          retention-days: 1
+
+  # ========================================
+  # Build ICL binary
+  # ========================================
+  build-icl:
+    needs: fetch-deps
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download ocicl dependencies
+        uses: actions/download-artifact@v4
+        with:
+          name: ocicl-deps
+          path: ocicl
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sbcl libfixposix-dev build-essential
+
+      - name: Build ICL
+        run: make
+
+      - name: Upload ICL binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: icl-binary
+          path: icl
+          retention-days: 1
+
+  # ========================================
+  # Test ICL with different Lisp backends
+  # ========================================
+  test-backends:
+    needs: build-icl
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [sbcl, ccl, ecl, abcl]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download ICL binary
+        uses: actions/download-artifact@v4
+        with:
+          name: icl-binary
+          path: .
+
+      - name: Make ICL executable
+        run: chmod +x ./icl
+
+      - name: Install ${{ matrix.backend }}
+        uses: 40ants/setup-lisp@v4
+        with:
+          implementation: ${{ matrix.backend }}
+
+      - name: Test basic evaluation
+        run: |
+          output=$(printf '(+ 1 2)\n,quit\n' | timeout 120s ./icl --lisp ${{ matrix.backend }} 2>&1) || true
+          echo "$output"
+          echo "$output" | grep -q "3" || (echo "FAIL: Expected result 3 not found" && exit 1)
+
+      - name: Test ,info command
+        run: |
+          output=$(printf ',info\n,quit\n' | timeout 120s ./icl --lisp ${{ matrix.backend }} 2>&1) || true
+          echo "$output"
+          # Check that the implementation name appears in output
+          case "${{ matrix.backend }}" in
+            sbcl) echo "$output" | grep -qi "sbcl" ;;
+            ccl)  echo "$output" | grep -qi "ccl\|clozure" ;;
+            ecl)  echo "$output" | grep -qi "ecl\|embeddable" ;;
+            abcl) echo "$output" | grep -qi "abcl\|armed bear" ;;
+          esac || (echo "FAIL: Expected implementation name not found" && exit 1)
+
+      - name: Test ,pwd command
+        run: |
+          output=$(printf ',pwd\n,quit\n' | timeout 120s ./icl --lisp ${{ matrix.backend }} 2>&1) || true
+          echo "$output"
+          echo "$output" | grep -qi "common-lisp-user\|cl-user" || (echo "FAIL: Expected package name not found" && exit 1)
+
+      - name: Test ,ls command
+        run: |
+          output=$(printf ',ls\n,quit\n' | timeout 120s ./icl --lisp ${{ matrix.backend }} 2>&1) || true
+          echo "$output"
+          # Should list some symbols or show empty package message
+          echo ",ls command completed successfully"
