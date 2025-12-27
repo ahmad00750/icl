@@ -54,6 +54,7 @@
                  (:file "input")
                  (:file "slynk-client")
                  (:file "embedded-slynk")
+                 (:file "image-cache")
                  (:file "backend")
                  (:file "output")
                  (:file "highlight")

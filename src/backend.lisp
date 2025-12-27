@@ -362,6 +362,9 @@
       (sb-thread:terminate-thread *output-reader-thread*))
     (setf *output-reader-thread* nil)))
 
+(defvar *use-image-cache* t
+  "If T, use cached SBCL images for faster startup. Set to NIL to disable.")
+
 (defun start-inferior-lisp (&key (lisp *default-lisp*) (port nil))
   "Start an inferior Lisp process with Slynk.
    If PORT is NIL, automatically finds a free port.
@@ -374,8 +377,82 @@
     ;; Verbose: show port
     (when *verbose*
       (format t "~&; Slynk port: ~D~%" actual-port))
-    ;; Start the inferior Lisp
-    (let ((program (find-lisp-program lisp)))
+
+    ;; For SBCL, try to use cached image for faster startup
+    (when (and (eq lisp :sbcl) *use-image-cache*)
+      (let ((cached-image (ensure-cached-sbcl-image)))
+        (when cached-image
+          (return-from start-inferior-lisp
+            (start-inferior-sbcl-with-cache actual-port cached-image)))))
+
+    ;; Fallback: start normally (for non-SBCL or when caching fails)
+    (start-inferior-lisp-uncached lisp actual-port)))
+
+(defun start-inferior-sbcl-with-cache (port cached-image)
+  "Start SBCL using the cached Slynk image for fast startup."
+  (when *verbose*
+    (format t "~&; Using cached image: ~A~%" cached-image))
+
+  ;; Start SBCL with the cached core
+  #+sbcl
+  (setf *inferior-process*
+        (sb-ext:run-program "sbcl"
+                            (list "--core" (namestring cached-image)
+                                  (princ-to-string port))
+                            :search t
+                            :wait nil
+                            :input :stream
+                            :output :stream
+                            :error :output))
+  #-sbcl
+  (error "Cached image startup only supported when running under SBCL")
+
+  (setf *current-lisp* :sbcl)
+
+  ;; Verbose: check if process started
+  (when *verbose*
+    (format t "~&; Process created: ~A~%" (if *inferior-process* "yes" "no"))
+    #+sbcl
+    (format t "~&; Process status: ~A~%" (sb-ext:process-status *inferior-process*)))
+
+  ;; Wait for Slynk to start - should be much faster with cached image
+  (let ((ticks 0)
+        (max-ticks 100)  ; 10 seconds max (faster with cache)
+        (message "Starting SBCL...")
+        #+sbcl (proc-output (sb-ext:process-output *inferior-process*)))
+    (loop
+      (show-spinner message)
+      (sleep 0.1)
+      (incf ticks)
+      ;; Verbose: show any output from inferior process
+      #+sbcl
+      (when (and *verbose* proc-output (listen proc-output))
+        (clear-spinner)
+        (loop while (listen proc-output)
+              do (let ((char (read-char proc-output nil nil)))
+                   (when char (write-char char))))
+        (force-output))
+      ;; Try to connect - with cached image, should connect quickly
+      (when (and (>= ticks 5)  ; First attempt after 0.5s
+                 (zerop (mod ticks 3)))  ; Then every 0.3s
+        (when (slynk-connect :port port)
+          (clear-spinner)
+          (start-output-reader)
+          (return t)))
+      (when (>= ticks max-ticks)
+        (clear-spinner)
+        #+sbcl
+        (when (and *verbose* proc-output)
+          (loop while (listen proc-output)
+                do (let ((char (read-char proc-output nil nil)))
+                     (when char (write-char char))))
+          (force-output))
+        (stop-inferior-lisp)
+        (error "Failed to connect to Slynk after ~D seconds" (/ max-ticks 10))))))
+
+(defun start-inferior-lisp-uncached (lisp port)
+  "Start an inferior Lisp process without using cached images."
+  (let ((program (find-lisp-program lisp)))
     (unless program
       (error "Unknown Lisp implementation: ~A" lisp))
     ;; Verbose: show program
@@ -385,7 +462,7 @@
     (unless (program-exists-p program)
       (error "Cannot find ~A in PATH" program))
     ;; Build the Slynk initialization code
-    (let* ((init-code (generate-slynk-init actual-port))
+    (let* ((init-code (generate-slynk-init port))
            (eval-arg (get-lisp-eval-arg lisp))
            (args (append (get-lisp-args lisp)
                          (list eval-arg init-code))))
@@ -428,7 +505,7 @@
           ;; Try to connect after initial delay, then every 0.5s
           (when (and (>= ticks 15)  ; First attempt after 1.5s
                      (zerop (mod ticks 5)))
-            (when (slynk-connect :port actual-port)
+            (when (slynk-connect :port port)
               (clear-spinner)
               ;; Start background thread to stream inferior Lisp output
               (start-output-reader)
@@ -443,7 +520,7 @@
                          (when char (write-char char))))
               (force-output))
             (stop-inferior-lisp)
-            (error "Failed to connect to Slynk after ~D seconds" (/ max-ticks 10)))))))))
+            (error "Failed to connect to Slynk after ~D seconds" (/ max-ticks 10))))))))
 
 (defun stop-inferior-lisp ()
   "Stop the inferior Lisp process."

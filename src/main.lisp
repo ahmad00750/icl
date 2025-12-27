@@ -46,6 +46,14 @@
    :key :no-banner
    :description "Don't print startup banner"))
 
+(defun make-no-cache-option ()
+  "Create --no-cache option to disable cached SBCL image."
+  (clingon:make-option
+   :flag
+   :long-name "no-cache"
+   :key :no-cache
+   :description "Don't create or use cached SBCL image"))
+
 (defun make-lisp-option ()
   "Create --lisp option to specify the Lisp implementation."
   (clingon:make-option
@@ -122,12 +130,16 @@
         (load-file (clingon:getopt cmd :load))
         (no-config (clingon:getopt cmd :no-config))
         (no-banner (clingon:getopt cmd :no-banner))
+        (no-cache (clingon:getopt cmd :no-cache))
         (lisp-impl (clingon:getopt cmd :lisp))
         (connect-str (clingon:getopt cmd :connect))
         (verbose (clingon:getopt cmd :verbose))
         (mcp-server (clingon:getopt cmd :mcp-server))
         (browser-mode (clingon:getopt cmd :browser))
         (unsafe-viz (clingon:getopt cmd :unsafe-visualizations)))
+    ;; Disable image caching if requested
+    (when no-cache
+      (setf *use-image-cache* nil))
     ;; MCP server mode - special handling, runs without config
     (when mcp-server
       (multiple-value-bind (host port)
@@ -235,6 +247,7 @@ and an extensible command system."
                   (make-load-option)
                   (make-no-config-option)
                   (make-no-banner-option)
+                  (make-no-cache-option)
                   (make-lisp-option)
                   (make-connect-option)
                   (make-verbose-option)
