@@ -83,8 +83,10 @@
     (loop for (from to label) in (sm-transitions sm)
           do (format s "    ~A --> ~A: ~A~%" from to label))))
 
-;; Register custom visualization when running in ICL
-(when (find-package :icl-runtime)
+;; Register custom visualization with ICL
+;; This function is called automatically by ICL when ,viz is invoked
+(defun register-icl-viz ()
+  "Register state-machine visualization with ICL."
   (eval `(defmethod ,(intern "VISUALIZE" :icl-runtime) ((obj state-machine))
            (list :mermaid (state-machine-to-mermaid obj)))))
 

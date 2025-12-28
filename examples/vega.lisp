@@ -42,8 +42,10 @@
         \"xOffset\":{\"field\":\"type\"}
       }}" values)))
 
-;; Register custom visualization when running in ICL
-(when (find-package :icl-runtime)
+;; Register custom visualization with ICL
+;; This function is called automatically by ICL when ,viz is invoked
+(defun register-icl-viz ()
+  "Register sales-data visualization with ICL."
   (eval `(defmethod ,(intern "VISUALIZE" :icl-runtime) ((obj sales-data))
            (list :vega-lite (sales-data-to-vega-lite obj)))))
 
