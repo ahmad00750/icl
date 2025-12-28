@@ -888,6 +888,17 @@ pre { margin: 0; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono',
         (setf (gethash "sourceExpr" obj) source-expr)
         (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj))))))
 
+(defun open-regexp-panel (title pattern source-expr)
+  "Send message to browser to open a Regexp railroad diagram panel."
+  (when *repl-resource*
+    (dolist (client (hunchensocket:clients *repl-resource*))
+      (let ((obj (make-hash-table :test 'equal)))
+        (setf (gethash "type" obj) "open-regexp")
+        (setf (gethash "title" obj) title)
+        (setf (gethash "pattern" obj) pattern)
+        (setf (gethash "sourceExpr" obj) source-expr)
+        (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj))))))
+
 (defun needs-case-escape-p (str)
   "Return T if STR contains lowercase letters that would be upcased by the reader."
   (and (stringp str)

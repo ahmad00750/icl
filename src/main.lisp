@@ -13,13 +13,13 @@
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
 (defun make-eval-option ()
-  "Create -e/--eval option for evaluating expressions."
+  "Create -e/--eval option for evaluating expressions (can be repeated)."
   (clingon:make-option
-   :string
+   :list
    :short-name #\e
    :long-name "eval"
    :key :eval
-   :description "Evaluate expression and print result"))
+   :description "Evaluate expression and print result (can be repeated)"))
 
 (defun make-load-option ()
   "Create -l/--load option for loading files."
@@ -212,14 +212,16 @@
         (error (e)
           (format *error-output* "~&Error loading ~A: ~A~%" load-file e)
           (uiop:quit 1))))
-    ;; Evaluate expression if specified
+    ;; Evaluate expressions if specified (process all in order)
     (when eval-expr
       (handler-case
-          (let ((values (backend-eval eval-expr)))
-            ;; Output streams automatically via :write-string events
-            ;; Print return values
-            (dolist (v values)
-              (format t "~S~%" v))
+          (progn
+            (dolist (expr eval-expr)
+              (let ((values (backend-eval expr)))
+                ;; Output streams automatically via :write-string events
+                ;; Print return values
+                (dolist (v values)
+                  (format t "~S~%" v))))
             (uiop:quit 0))
         (error (e)
           (format *error-output* "~&Error: ~A~%" e)

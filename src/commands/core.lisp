@@ -1446,6 +1446,10 @@ Examples:
            (let ((definition (second parsed)))
              (open-mermaid-panel trimmed definition trimmed)
              (format t "~&; Visualizing Mermaid diagram~%")))
+          (:regexp
+           (let ((pattern (second parsed)))
+             (open-regexp-panel trimmed pattern trimmed)
+             (format t "~&; Visualizing regexp pattern~%")))
           (:image-bytes
            (let* ((mime (second parsed))
                   (base64 (third parsed))

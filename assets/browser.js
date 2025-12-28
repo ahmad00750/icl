@@ -341,6 +341,13 @@ ws.onmessage = (e) => {
     case 'mermaid-refresh':
       handleMermaidRefresh(msg);
       break;
+    case 'open-regexp':
+      openRegexpPanel(msg.title, msg.pattern, msg.sourceExpr);
+      restoreTerminalFocus();
+      break;
+    case 'regexp-refresh':
+      handleRegexpRefresh(msg);
+      break;
   }
 };
 
@@ -744,6 +751,121 @@ function handleMermaidRefresh(msg) {
     const panelState = mermaidStates.get(panelId);
     if (panelState && panelState._element) {
       renderMermaid(panelState._element, definition);
+    }
+  }
+}
+
+// ========================================
+// Regexp Railroad Diagram Visualization
+// ========================================
+
+const regexpStates = new Map();
+
+// Open Regexp panel - tracks by source expression for updates
+function openRegexpPanel(title, pattern, sourceExpr) {
+  console.log('openRegexpPanel called:', title, pattern, sourceExpr);
+  const panelId = 'regexp-' + sanitizeForPanelId(sourceExpr);
+  if (dockviewApi) {
+    // Check if panel exists and update it
+    if (regexpStates.has(panelId)) {
+      console.log('Updating existing Regexp panel');
+      const panelState = regexpStates.get(panelId);
+      if (panelState && panelState._element) {
+        renderRegexp(panelState._element, pattern);
+      }
+    } else {
+      console.log('Creating new Regexp panel');
+      dockviewApi.addPanel({
+        id: panelId,
+        component: 'regexp',
+        title: title || 'Regexp',
+        params: { pattern, sourceExpr, panelId },
+        position: { referencePanel: 'terminal', direction: 'right' }
+      });
+    }
+  }
+}
+
+// Render regexp pattern into element using Regulex
+function renderRegexp(element, pattern) {
+  element.innerHTML = '';
+  const container = document.createElement('div');
+  container.style.cssText = 'width:100%;height:100%;overflow:auto;background:white;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;';
+  element.appendChild(container);
+
+  // Create a unique container for Raphael with explicit dimensions
+  const graphContainer = document.createElement('div');
+  graphContainer.id = 'regexp-graph-' + Date.now();
+  graphContainer.style.cssText = 'width:800px;height:400px;';
+  container.appendChild(graphContainer);
+
+  // Wait for layout to complete before rendering
+  requestAnimationFrame(() => {
+    try {
+      // Get Regulex modules via AMD require
+      const Raphael = require('regulex').Raphael;
+      const parse = require('regulex').parse;
+      const visualize = require('regulex').visualize;
+
+      // Parse the regex pattern
+      const ast = parse(pattern);
+
+      // Create Raphael paper matching container dimensions
+      const paper = Raphael(graphContainer, 800, 400);
+
+      // Visualize the regex - empty flags for now
+      visualize(ast, '', paper);
+
+      // Wait another frame for SVG to settle
+      requestAnimationFrame(() => {
+        const svgEl = graphContainer.querySelector('svg');
+        if (svgEl) {
+          // Get the bounding box of all rendered content
+          const bbox = svgEl.getBBox();
+
+          // Set the SVG size to exactly fit the content plus padding
+          const padding = 20;
+          const svgWidth = bbox.x + bbox.width + padding;
+          const svgHeight = bbox.y + bbox.height + padding;
+
+          svgEl.setAttribute('width', svgWidth);
+          svgEl.setAttribute('height', svgHeight);
+          graphContainer.style.width = svgWidth + 'px';
+          graphContainer.style.height = svgHeight + 'px';
+
+          // Scale the container to fit the panel while maintaining aspect ratio
+          const panelWidth = element.clientWidth - 40;
+          const panelHeight = element.clientHeight - 40;
+          const scaleX = panelWidth / svgWidth;
+          const scaleY = panelHeight / svgHeight;
+          const scale = Math.min(scaleX, scaleY, 3);
+
+          if (scale < 1) {
+            // Content is larger than panel, scale down
+            graphContainer.style.transform = `scale(${scale})`;
+            graphContainer.style.transformOrigin = 'center center';
+          } else if (scale > 1) {
+            // Content is smaller, scale up (but not too much)
+            graphContainer.style.transform = `scale(${Math.min(scale, 2)})`;
+            graphContainer.style.transformOrigin = 'center center';
+          }
+        }
+      });
+    } catch (err) {
+      console.error('Regexp render error:', err);
+      container.innerHTML = '<div style="padding:20px;color:#c00;white-space:pre-wrap;">Regexp error: ' + err.message + '</div>';
+    }
+  });
+}
+
+// Handle Regexp refresh
+function handleRegexpRefresh(msg) {
+  const panelId = msg.panelId;
+  const pattern = msg.pattern;
+  if (regexpStates.has(panelId)) {
+    const panelState = regexpStates.get(panelId);
+    if (panelState && panelState._element) {
+      renderRegexp(panelState._element, pattern);
     }
   }
 }
@@ -1965,6 +2087,42 @@ class MermaidPanel {
   }
 }
 
+class RegexpPanel {
+  constructor() {
+    this._element = document.createElement('div');
+    this._element.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;background:white;overflow:auto;';
+    this._panelId = null;
+    this._sourceExpr = null;
+    this._pattern = '';
+  }
+  get element() { return this._element; }
+  init(params) {
+    this._panelId = params.params?.panelId || params.id;
+    this._sourceExpr = params.params?.sourceExpr;
+    this._pattern = params.params?.pattern || '';
+    console.log('RegexpPanel.init panelId:', this._panelId, 'sourceExpr:', this._sourceExpr);
+    // Render diagram
+    renderRegexp(this._element, this._pattern);
+    // Register with regexpStates for updates
+    if (this._panelId) {
+      regexpStates.set(this._panelId, this);
+      console.log('RegexpPanel registered:', this._panelId);
+    }
+    // Re-render on resize (debounced)
+    let resizeTimeout = null;
+    const resizeObserver = new ResizeObserver(() => {
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => this.reRender(), 150);
+    });
+    resizeObserver.observe(this._element);
+  }
+  reRender() {
+    if (this._pattern) {
+      renderRegexp(this._element, this._pattern);
+    }
+  }
+}
+
 class VennPanel {
   constructor() {
     this._element = document.createElement('div');
@@ -3018,6 +3176,7 @@ const api = dv.createDockview(container, {
       case 'image': return new ImagePanel();
       case 'vega-lite': return new VegaLitePanel();
       case 'mermaid': return new MermaidPanel();
+      case 'regexp': return new RegexpPanel();
       case 'venn': return new VennPanel();
       case 'graphviz': return new GraphvizPanel();
       case 'terminal': return new TerminalPanel();

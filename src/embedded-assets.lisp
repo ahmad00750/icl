@@ -37,6 +37,7 @@
                         "vega-lite.min.js"
                         "vega-embed.min.js"
                         "mermaid.min.js"
+                        "regulex.js"
                         "browser.css"
                         "browser.js"
                         "WEB-LICENSES"

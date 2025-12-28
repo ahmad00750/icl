@@ -46,6 +46,7 @@
   <script src='/assets/vega-lite.min.js'></script>
   <script src='/assets/vega-embed.min.js'></script>
   <script src='/assets/mermaid.min.js'></script>
+  <script src='/assets/regulex.js'></script>
 
   <!-- Main application script -->
   <script src='/assets/browser.js'></script>
