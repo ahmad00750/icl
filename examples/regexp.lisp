@@ -137,7 +137,7 @@
              (let* ((loop-state (next-state))
                     (inner-ends (emit-state stream inner loop-state)))
                ;; Epsilon transition to loop state
-               (format stream "    ~A --> ~A: [epsilon]~%" from-state loop-state)
+               (format stream "    ~A --> ~A: ε~%" from-state loop-state)
                ;; Loop back
                (dolist (end inner-ends)
                  (format stream "    ~A --> ~A~%" end loop-state))
@@ -150,7 +150,7 @@
                (dolist (end inner-ends)
                  (format stream "    ~A --> ~A~%" end loop-state))
                ;; Loop back to re-match
-               (format stream "    ~A --> ~A: [repeat]~%" loop-state from-state)
+               (format stream "    ~A --> ~A: repeat~%" loop-state from-state)
                (list loop-state)))
 
             ;; ? (zero or one)
@@ -158,7 +158,7 @@
              (let ((inner-ends (emit-state stream inner from-state))
                    (skip-state (next-state)))
                ;; Skip path (epsilon)
-               (format stream "    ~A --> ~A: [skip]~%" from-state skip-state)
+               (format stream "    ~A --> ~A: skip~%" from-state skip-state)
                ;; Connect inner ends to skip state
                (dolist (end inner-ends)
                  (format stream "    ~A --> ~A~%" end skip-state))
@@ -187,7 +187,7 @@
                (let ((loop-state (next-state)))
                  (dolist (end current)
                    (format stream "    ~A --> ~A~%" end loop-state))
-                 (format stream "    ~A --> ~A: [repeat]~%" loop-state (car current))
+                 (format stream "    ~A --> ~A: repeat~%" loop-state (car current))
                  (list loop-state))))
 
             ;; {n,m} (between n and m)
@@ -213,18 +213,18 @@
        (:non-greedy-repetition
         (emit-state stream `(:greedy-repetition ,@(cdr tree)) from-state))
 
-       ;; Character class
+       ;; Character class - use parens since Mermaid interprets [] as special syntax
        (:char-class
         (let ((to-state (next-state))
               (chars (mapcar #'format-char-class (cdr tree))))
-          (format stream "    ~A --> ~A: [~{~A~}]~%" from-state to-state chars)
+          (format stream "    ~A --> ~A: (~{~A~})~%" from-state to-state chars)
           (list to-state)))
 
        ;; Inverted character class
        (:inverted-char-class
         (let ((to-state (next-state))
               (chars (mapcar #'format-char-class (cdr tree))))
-          (format stream "    ~A --> ~A: [^~{~A~}]~%" from-state to-state chars)
+          (format stream "    ~A --> ~A: (^~{~A~})~%" from-state to-state chars)
           (list to-state)))
 
        ;; Anchors (don't consume input, just assertions)
