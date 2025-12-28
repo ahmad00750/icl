@@ -134,8 +134,11 @@
                   (list (cons '*debug-io* io)
                         (cons '*query-io* io)
                         (cons '*terminal-io* io))))))
-      ;; Start Slynk server
-      (let ((*standard-output* (make-broadcast-stream)))
+      ;; Start Slynk server (suppress startup message)
+      ;; Slynk's init hook sets *log-output* to *error-output*, so we bind both
+      (let* ((null-stream (make-broadcast-stream))
+             (*standard-output* null-stream)
+             (*error-output* null-stream))
         (funcall (read-from-string \"slynk:create-server\")
                  :port port :dont-close t))
       ;; Keep process alive

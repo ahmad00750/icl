@@ -216,8 +216,6 @@
             ;; when ASDF isn't loaded yet (Windows SBCL doesn't preload ASDF)
             ;; First ensure ASDF is available - some Lisps (CLISP) don't bundle it
             (format nil "(progn
-  (format t \"~~&;; Starting Slynk init...~~%%\")
-  (force-output)
   ;; Ensure ASDF is available (some Lisps like CLISP don't bundle it)
   (unless (find-package :asdf)
     (handler-case
@@ -225,16 +223,15 @@
       (error ()~@[
         ;; ASDF not built in, load bundled version
         (load ~S)~])))
-  (format t \"~~&;; ASDF loaded, adding Slynk to registry...~~%%\")
-  (force-output)
   (push ~S (symbol-value (read-from-string \"asdf:*central-registry*\")))
-  ;; Load Slynk - show output for debugging
-  (format t \"~~&;; Loading Slynk system...~~%%\")
-  (force-output)
-  (handler-bind ((warning #'muffle-warning))
-    (funcall (read-from-string \"asdf:load-system\") :slynk))
-  (format t \"~~&;; Slynk loaded, configuring...~~%%\")
-  (force-output)
+  ;; Load Slynk quietly (suppress all output including ASDF loader messages)
+  (let* ((null-stream (make-broadcast-stream))
+         (*standard-output* null-stream)
+         (*error-output* null-stream)
+         (*trace-output* null-stream)
+         (*debug-io* (make-two-way-stream (make-concatenated-stream) null-stream)))
+    (handler-bind ((warning #'muffle-warning))
+      (funcall (read-from-string \"asdf:load-system\") :slynk)))
   ;; Disable auth/secret expectations and SWANK->SLYNK translation
   (let ((secret (find-symbol \"SLY-SECRET\" :slynk)))
     (when secret (setf (symbol-function secret) (lambda () nil))))
@@ -254,20 +251,17 @@
               (list (cons '*debug-io* io)
                     (cons '*query-io* io)
                     (cons '*terminal-io* io))))))
-  (format t \"~~&;; Starting Slynk server on port ~D...~~%%\")
-  (force-output)
-  (funcall (read-from-string \"slynk:create-server\")
-           :port ~D :dont-close t)
+  ;; Start Slynk server quietly
+  (let ((*standard-output* (make-broadcast-stream)))
+    (funcall (read-from-string \"slynk:create-server\")
+             :port ~D :dont-close t))
   ;; Give the server thread time to fully initialize before we consider it ready.
   ;; Some implementations (CCL, ABCL) need this delay for the accept thread to start.
   (sleep 2)
-  (format t \"~~&;; Slynk server ready, entering sleep loop...~~%%\")
-  (force-output)
   ;; Keep process alive (needed for CLISP with -x which exits after eval)
   (loop (sleep 60)))"
                     (when asdf-file (uiop:unix-namestring asdf-file))
                     (uiop:unix-namestring slynk-dir)
-                    port
                     port)
             ;; Slynk not found - error
             (error "Cannot find Slynk. This should not happen with embedded Slynk.")))))
