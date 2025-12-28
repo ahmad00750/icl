@@ -91,6 +91,11 @@
    Allows JavaScript execution in custom visualize methods.
    Set via --unsafe-visualizations command line option.")
 
+(defvar *viz-package-exclusions* nil
+  "List of regex strings for packages to exclude from REGISTER-ICL-VIZ scanning.
+   Packages whose names match any regex will be skipped.
+   Example: (setf icl:*viz-package-exclusions* '(\"^SB-\" \"^ASDF\"))")
+
 (defvar *capture-backend-output* nil
   "When T, capture backend stdout/stderr and print through the current REPL stream.")
 

@@ -26,6 +26,7 @@
    #:*colors-enabled*
    #:*syntax-highlighting-enabled*
    #:*paredit-mode*
+   #:*viz-package-exclusions*
 
    ;; Hooks
    #:*before-eval-hook*

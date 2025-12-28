@@ -212,34 +212,55 @@ Return NIL to use default ICL visualization.\"))
       (error (e)
         (format *error-output* "~&; Warning: Failed to inject ICL runtime: ~A~%" e)))))
 
+(defun package-excluded-p (package-name)
+  "Check if PACKAGE-NAME matches any exclusion pattern in *viz-package-exclusions*."
+  (when *viz-package-exclusions*
+    (some (lambda (pattern)
+            (cl-ppcre:scan pattern package-name))
+          *viz-package-exclusions*)))
+
 (defun process-library-visualizations ()
   "Call REGISTER-ICL-VIZ in any package that defines it.
 Libraries can define this function to register their visualization methods
 with icl-runtime:visualize after ICL connects.
-Tracks which packages have been processed to avoid duplicate registrations."
+Tracks which packages have been processed to avoid duplicate registrations.
+Respects *viz-package-exclusions* for filtering packages by regex."
   (when *slynk-connected-p*
     (handler-case
-        (slynk-client:slime-eval
-         '(cl:progn
-            ;; Ensure tracking hash table exists
-            (cl:unless (cl:boundp 'cl-user::*icl-viz-registered-packages*)
-              (cl:setf (cl:symbol-value 'cl-user::*icl-viz-registered-packages*)
-                       (cl:make-hash-table :test 'cl:eq)))
-            (cl:let ((cl-user::ht (cl:symbol-value 'cl-user::*icl-viz-registered-packages*)))
-              (cl:dolist (cl-user::pkg (cl:list-all-packages))
-                (cl:let ((cl-user::fn (cl:find-symbol "REGISTER-ICL-VIZ" cl-user::pkg)))
-                  (cl:when (cl:and cl-user::fn
-                                   (cl:fboundp cl-user::fn)
-                                   (cl:not (cl:gethash cl-user::pkg cl-user::ht)))
-                    (cl:handler-case
-                        (cl:progn
-                          (cl:funcall cl-user::fn)
-                          (cl:setf (cl:gethash cl-user::pkg cl-user::ht) cl:t))
-                      (cl:error (cl-user::e)
-                        (cl:format cl:*error-output*
-                                   "~&; Warning: ~A:REGISTER-ICL-VIZ failed: ~A~%"
-                                   (cl:package-name cl-user::pkg) cl-user::e))))))))
-         *slynk-connection*)
+        (let ((candidates (slynk-client:slime-eval
+                           '(cl:progn
+                              ;; Ensure tracking hash table exists
+                              (cl:unless (cl:boundp 'cl-user::*icl-viz-registered-packages*)
+                                (cl:setf (cl:symbol-value 'cl-user::*icl-viz-registered-packages*)
+                                         (cl:make-hash-table :test 'cl:equal)))
+                              ;; Collect unprocessed packages with REGISTER-ICL-VIZ
+                              (cl:let ((cl-user::ht (cl:symbol-value 'cl-user::*icl-viz-registered-packages*))
+                                       (cl-user::result nil))
+                                (cl:dolist (cl-user::pkg (cl:list-all-packages) cl-user::result)
+                                  (cl:let ((cl-user::fn (cl:find-symbol "REGISTER-ICL-VIZ" cl-user::pkg))
+                                           (cl-user::name (cl:package-name cl-user::pkg)))
+                                    (cl:when (cl:and cl-user::fn
+                                                     (cl:fboundp cl-user::fn)
+                                                     (cl:not (cl:gethash cl-user::name cl-user::ht)))
+                                      (cl:push cl-user::name cl-user::result))))))
+                           *slynk-connection*)))
+          ;; Filter out excluded packages (regex matching in ICL where cl-ppcre is available)
+          (dolist (pkg-name candidates)
+            (unless (package-excluded-p pkg-name)
+              (handler-case
+                  (slynk-client:slime-eval
+                   `(cl:let ((cl-user::pkg (cl:find-package ,pkg-name)))
+                      (cl:when cl-user::pkg
+                        (cl:let ((cl-user::fn (cl:find-symbol "REGISTER-ICL-VIZ" cl-user::pkg)))
+                          (cl:when (cl:and cl-user::fn (cl:fboundp cl-user::fn))
+                            (cl:funcall cl-user::fn)
+                            (cl:setf (cl:gethash ,pkg-name
+                                                 (cl:symbol-value 'cl-user::*icl-viz-registered-packages*))
+                                     cl:t)))))
+                   *slynk-connection*)
+                (error (e)
+                  (format *error-output* "~&; Warning: ~A:REGISTER-ICL-VIZ failed: ~A~%"
+                          pkg-name e))))))
       (error (e)
         (format *error-output* "~&; Warning: Failed to process library visualizations: ~A~%" e)))))
 

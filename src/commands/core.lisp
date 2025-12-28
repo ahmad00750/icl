@@ -1705,6 +1705,7 @@ Example: ,show-config"
   (format t "  *colors-enabled*   - Enable colors (default: T)~%")
   (format t "  *history-size*     - Max history entries (default: 1000)~%")
   (format t "  *paredit-mode*     - Structural editing (default: NIL)~%")
+  (format t "  *viz-package-exclusions* - Regex list to skip in ,viz (default: NIL)~%")
   (format t "~%Available hooks:~%")
   (format t "  *before-eval-hook* - Called before evaluation~%")
   (format t "  *after-eval-hook*  - Called after evaluation~%")
