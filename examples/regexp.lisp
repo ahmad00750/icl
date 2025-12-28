@@ -73,12 +73,11 @@
 
 (defun tree-to-mermaid (tree pattern)
   "Convert a CL-PPCRE parse tree to Mermaid stateDiagram format."
+  (declare (ignore pattern))
   (reset-counter)
   (with-output-to-string (s)
     (format s "stateDiagram-v2~%")
     (format s "    direction LR~%")
-    ;; Add title with the pattern
-    (format s "    note left of [*]: /~A/~%" (escape-label pattern))
     (let ((end-states (emit-state s tree "[*]")))
       ;; Connect all end states to final
       (dolist (state end-states)
