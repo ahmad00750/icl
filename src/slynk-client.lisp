@@ -37,9 +37,11 @@
 (defvar *icl-runtime-injected* nil
   "T when ICL runtime has been injected into the inferior Lisp.")
 
-(defun slynk-verify-connection (connection &optional (timeout-seconds 10))
+(defun slynk-verify-connection (connection &optional (timeout-seconds 3))
   "Verify that CONNECTION is responsive by doing a simple eval with timeout.
-   Returns T if the connection is responsive, NIL otherwise."
+   Returns T if the connection is responsive, NIL otherwise.
+   Default timeout is 3 seconds to allow multiple retry attempts within
+   the startup window."
   #+sbcl
   (handler-case
       (sb-ext:with-timeout timeout-seconds

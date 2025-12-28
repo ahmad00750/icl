@@ -487,41 +487,47 @@
         #+sbcl
         (format t "~&; Process status: ~A~%" (sb-ext:process-status *inferior-process*)))
       ;; Wait for Slynk to start with spinner
-      (let ((ticks 0)
-            (max-ticks 420)  ; 42 seconds max
+      ;; Use real elapsed time instead of ticks to account for verification time
+      (let ((start-time (get-internal-real-time))
+            (max-seconds 60)  ; 60 seconds max (was 42s but CCL needs more time)
+            (last-attempt-time 0)
+            (attempt-interval 0.5)  ; seconds between attempts
+            (initial-delay 1.5)  ; seconds before first attempt
             (message (format nil "Starting ~A..." lisp))
             #+sbcl (proc-output (sb-ext:process-output *inferior-process*)))
         (loop
           (show-spinner message)
           (sleep 0.1)
-          (incf ticks)
-          ;; Verbose: show any output from inferior process
-          #+sbcl
-          (when (and *verbose* proc-output (listen proc-output))
-            (clear-spinner)
-            (loop while (listen proc-output)
-                  do (let ((char (read-char proc-output nil nil)))
-                       (when char (write-char char))))
-            (force-output))
-          ;; Try to connect after initial delay, then every 0.5s
-          (when (and (>= ticks 15)  ; First attempt after 1.5s
-                     (zerop (mod ticks 5)))
-            (when (slynk-connect :port port)
-              (clear-spinner)
-              ;; Start background thread to stream inferior Lisp output
-              (start-output-reader)
-              (return t)))
-          (when (>= ticks max-ticks)
-            (clear-spinner)
-            ;; Verbose: show final output before stopping
+          (let ((elapsed (/ (- (get-internal-real-time) start-time)
+                            internal-time-units-per-second)))
+            ;; Verbose: show any output from inferior process
             #+sbcl
-            (when (and *verbose* proc-output)
+            (when (and *verbose* proc-output (listen proc-output))
+              (clear-spinner)
               (loop while (listen proc-output)
                     do (let ((char (read-char proc-output nil nil)))
                          (when char (write-char char))))
               (force-output))
-            (stop-inferior-lisp)
-            (error "Failed to connect to Slynk after ~D seconds" (/ max-ticks 10))))))))
+            ;; Try to connect after initial delay, then at regular intervals
+            (when (and (>= elapsed initial-delay)
+                       (>= (- elapsed last-attempt-time) attempt-interval))
+              (setf last-attempt-time elapsed)
+              (when (slynk-connect :port port)
+                (clear-spinner)
+                ;; Start background thread to stream inferior Lisp output
+                (start-output-reader)
+                (return t)))
+            (when (>= elapsed max-seconds)
+              (clear-spinner)
+              ;; Verbose: show final output before stopping
+              #+sbcl
+              (when (and *verbose* proc-output)
+                (loop while (listen proc-output)
+                      do (let ((char (read-char proc-output nil nil)))
+                           (when char (write-char char))))
+                (force-output))
+              (stop-inferior-lisp)
+              (error "Failed to connect to Slynk after ~D seconds" max-seconds))))))))
 
 (defun stop-inferior-lisp ()
   "Stop the inferior Lisp process."
