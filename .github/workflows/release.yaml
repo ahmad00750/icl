@@ -233,7 +233,7 @@ jobs:
         with:
           name: windows-package
           path: |
-            ./*.zip
+            ./icl-*-windows-*.zip
             ./*-setup.exe
             ./*.msi
             ./checksums-windows.txt
@@ -416,7 +416,7 @@ jobs:
             artifacts/deb-packages/*.tar.*
             artifacts/deb-packages/*.buildinfo
             artifacts/deb-packages/*.changes
-            artifacts/windows-package/*.zip
+            artifacts/windows-package/icl-*-windows-*.zip
             artifacts/windows-package/*-setup.exe
             artifacts/windows-package/*.msi
             artifacts/chocolatey-package/*.nupkg
