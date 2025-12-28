@@ -109,7 +109,7 @@ uffi, ghcr.io/ocicl/cffi@sha256:d415b2cde8431fb3e7d5fc358fccb4aaa0a028dd8819e146
 usocket, ghcr.io/ocicl/usocket@sha256:282856b819b22a4319ba30a15605ee934aa23292a471fd29ea4d3f2074b3f16d, usocket-0.8.8/usocket.asd
 usocket-server, ghcr.io/ocicl/usocket@sha256:282856b819b22a4319ba30a15605ee934aa23292a471fd29ea4d3f2074b3f16d, usocket-0.8.8/usocket-server.asd
 usocket-test, ghcr.io/ocicl/usocket@sha256:282856b819b22a4319ba30a15605ee934aa23292a471fd29ea4d3f2074b3f16d, usocket-0.8.8/usocket-test.asd
-version-string, ghcr.io/ocicl/version-string@sha256:0d6103de97750f7a85d84b38b2495399817d550ce1e2369ba31a652e39e2b2e7, cl-version-string-20250701-2a9f9ba/version-string.asd
+version-string, ghcr.io/ocicl/version-string@sha256:eb8f45786af7fd6f792aecada1f905870f1d79abfaee0ceb774a94824ad9b14f, cl-version-string-20251228-668f2fa/version-string.asd
 with-user-abort, ghcr.io/ocicl/with-user-abort@sha256:c19560034f9909a7afb4110b5efd939a9f1e829d9ef9887797b98679f290c480, with-user-abort-20240503-a3db02e/with-user-abort.asd
 yason, ghcr.io/ocicl/yason@sha256:d4857f9cbdd68a5d1332c7f8a4a2374b1ae0dc567d4b8f90795ff38fd490876b, yason-20250323-0c84b29/yason.asd
 yason-tests, ghcr.io/ocicl/yason@sha256:d4857f9cbdd68a5d1332c7f8a4a2374b1ae0dc567d4b8f90795ff38fd490876b, yason-20250323-0c84b29/yason-tests.asd
