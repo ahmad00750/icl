@@ -104,6 +104,14 @@
    :key :unsafe-visualizations
    :description "Allow JavaScript in visualizations (disables security sandbox)"))
 
+(defun make-no-open-option ()
+  "Create --no-open option to prevent automatic browser opening."
+  (clingon:make-option
+   :flag
+   :long-name "no-open"
+   :key :no-open
+   :description "Don't automatically open browser (use with -b)"))
+
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; CLI Handler
 ;;; ─────────────────────────────────────────────────────────────────────────────
@@ -136,7 +144,8 @@
         (verbose (clingon:getopt cmd :verbose))
         (mcp-server (clingon:getopt cmd :mcp-server))
         (browser-mode (clingon:getopt cmd :browser))
-        (unsafe-viz (clingon:getopt cmd :unsafe-visualizations)))
+        (unsafe-viz (clingon:getopt cmd :unsafe-visualizations))
+        (no-open (clingon:getopt cmd :no-open)))
     ;; Disable image caching if requested
     (when no-cache
       (setf *use-image-cache* nil))
@@ -218,8 +227,10 @@
     ;; Start browser if requested
     (when browser-mode
       (format t "Starting ICL browser interface...~%")
-      (let ((url (start-browser :open-browser t)))
-        (format t "Browser started at ~A~%" url)))
+      (let ((url (start-browser :open-browser (not no-open))))
+        (if no-open
+            (format t "Direct your browser to ~A~%" url)
+            (format t "Browser started at ~A~%" url))))
     ;; If --connect -b, run browser-only mode (no terminal REPL)
     (if (and connect-str browser-mode)
         (progn
@@ -257,6 +268,7 @@ and an extensible command system."
                   (make-verbose-option)
                   (make-mcp-server-option)
                   (make-browser-option)
+                  (make-no-open-option)
                   (make-unsafe-visualizations-option))
    :handler #'handle-cli))
 

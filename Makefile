@@ -36,7 +36,7 @@ assets/OPEN-SOURCE-NOTICES.txt: assets/WEB-LICENSES ocicl.csv
 
 slynk.zip:
 	@echo "Creating slynk.zip..."
-	@ocicl install slynk
+	@if [ -z "$$(ls -d ocicl/sly-*/slynk 2>/dev/null)" ]; then ocicl install slynk; fi
 	@rm -f slynk.zip
 	sbcl --non-interactive \
 	     --eval "(require 'asdf)" \
