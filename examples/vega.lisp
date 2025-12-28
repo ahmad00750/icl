@@ -46,8 +46,8 @@
 ;; This function is called automatically by ICL when ,viz is invoked
 (defun register-icl-viz ()
   "Register sales-data visualization with ICL."
-  (eval `(defmethod ,(intern "VISUALIZE" :icl-runtime) ((obj sales-data))
-           (list :vega-lite (sales-data-to-vega-lite obj)))))
+  (defmethod icl-runtime:visualize ((obj sales-data))
+    (list :vega-lite (sales-data-to-vega-lite obj))))
 
 ;; Example sales data instance
 (defvar *my-sales*

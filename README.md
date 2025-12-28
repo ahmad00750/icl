@@ -376,7 +376,7 @@ Libraries can provide visualizations that work even when loaded before ICL conne
     (list :json (config-to-json obj))))
 ```
 
-ICL automatically discovers and calls `REGISTER-ICL-VIZ` in all packages when `,viz` is invoked. Each package is only processed once per session.
+ICL automatically discovers and calls `REGISTER-ICL-VIZ` in all packages when `,viz` is invoked. The `icl-runtime` package is guaranteed to exist when your function is called. Each package is only processed once per session.
 
 #### Security
 

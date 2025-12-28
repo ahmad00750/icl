@@ -87,8 +87,8 @@
 ;; This function is called automatically by ICL when ,viz is invoked
 (defun register-icl-viz ()
   "Register state-machine visualization with ICL."
-  (eval `(defmethod ,(intern "VISUALIZE" :icl-runtime) ((obj state-machine))
-           (list :mermaid (state-machine-to-mermaid obj)))))
+  (defmethod icl-runtime:visualize ((obj state-machine))
+    (list :mermaid (state-machine-to-mermaid obj))))
 
 ;; Example state machine instance
 (defvar *my-state-machine*
