@@ -52,7 +52,7 @@
 
 (defun file-content-hash (path)
   "Compute a short hash of file contents for cache invalidation.
-   Returns a 8-character hex string, or 'noinit' if file doesn't exist."
+   Returns a 7-character hex string, or 'noinit' if file doesn't exist."
   (if (and path (probe-file path))
       (let ((hash 0))
         ;; Simple but effective: FNV-1a-like hash of file contents
@@ -62,8 +62,8 @@
                 do (setf hash (logxor hash byte))
                    (setf hash (logand #xFFFFFFFF
                                       (* hash 16777619)))))
-        ;; Return first 8 hex chars
-        (subseq (format nil "~8,'0X" (logand hash #xFFFFFFFF)) 0 8))
+        ;; Return first 7 hex chars
+        (subseq (format nil "~8,'0X" (logand hash #xFFFFFFFF)) 0 7))
       "noinit"))
 
 (defun sbcl-init-hash ()
