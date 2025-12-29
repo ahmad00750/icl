@@ -1116,10 +1116,18 @@ Example: ,dis mapcar"
   "Disassemble function NAME via Slynk."
   (unless *slynk-connected-p*
     (error "Not connected to Slynk server"))
-  (slynk-client:slime-eval
-   `(cl:with-output-to-string (cl:*standard-output*)
-      (cl:disassemble (cl:quote ,(read-from-string (string-upcase name)))))
-   *slynk-connection*))
+  ;; Read symbol in user's current package context
+  (let* ((sym (let ((*package* (or *icl-package* *package*)))
+                (read-from-string (string-upcase name))))
+         (full-name (if (symbol-package sym)
+                        (format nil "~A::~A"
+                                (package-name (symbol-package sym))
+                                (symbol-name sym))
+                        (symbol-name sym))))
+    (slynk-client:slime-eval
+     `(cl:with-output-to-string (cl:*standard-output*)
+        (cl:disassemble (cl:quote ,(read-from-string full-name))))
+     *slynk-connection*)))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Profiling Commands
