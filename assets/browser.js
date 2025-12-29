@@ -2282,7 +2282,7 @@ class MonacoSourcePanel {
     }
 
     if (!this._content) {
-      this._element.innerHTML = '<div style="padding:20px;color:var(--fg-secondary);">No source available</div>';
+      this._element.innerHTML = '<div style="padding:20px;color:var(--fg-secondary);">No source available. The source file may not be installed or accessible.</div>';
       return;
     }
 
@@ -2358,6 +2358,11 @@ class MonacoSourcePanel {
     this._iframe = document.createElement('iframe');
     this._iframe.style.cssText = 'width:100%;height:100%;border:none;';
     this._iframe.src = '/assets/monaco/editor.html';
+
+    // Handle iframe load errors
+    this._iframe.onerror = () => {
+      container.innerHTML = '<div style="padding:20px;color:var(--fg-secondary);">Failed to load Monaco editor</div>';
+    };
 
     this._messageHandler = (e) => {
       if (e.source !== this._iframe?.contentWindow) return;
