@@ -74,7 +74,29 @@
       (let ((path (merge-pathnames filename assets-dir)))
         (when (probe-file path)
           (setf (gethash filename *embedded-binary-assets*)
-                (alexandria:read-file-into-byte-vector path)))))))
+                (alexandria:read-file-into-byte-vector path)))))
+    ;; Monaco editor assets (text files)
+    (let ((monaco-dir (merge-pathnames "monaco/" assets-dir)))
+      (dolist (filename '("editor.html"
+                          "editor-init.js"
+                          "init.js"
+                          "loader.html"
+                          "LICENSE"
+                          "vs/loader.js"
+                          "vs/editor/editor.main.js"
+                          "vs/editor/editor.main.css"
+                          "vs/base/worker/workerMain.js"
+                          "vs/basic-languages/scheme/scheme.js"))
+        (let ((path (merge-pathnames filename monaco-dir)))
+          (when (probe-file path)
+            (setf (gethash (concatenate 'string "monaco/" filename) *embedded-assets*)
+                  (alexandria:read-file-into-string path)))))
+      ;; Monaco binary assets (fonts)
+      (dolist (filename '("vs/base/browser/ui/codicons/codicon/codicon.ttf"))
+        (let ((path (merge-pathnames filename monaco-dir)))
+          (when (probe-file path)
+            (setf (gethash (concatenate 'string "monaco/" filename) *embedded-binary-assets*)
+                  (alexandria:read-file-into-byte-vector path))))))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Asset Access
