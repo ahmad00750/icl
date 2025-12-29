@@ -176,8 +176,8 @@ jobs:
         run: |
           output=$(printf ',doc car\n,quit\n' | timeout 120s ./icl --lisp ${{ matrix.backend }} 2>&1) || true
           echo "$output"
-          # Should show documentation for CAR function
-          echo ",doc command completed successfully"
+          # Should show documentation for CAR function (mentions "car", "list", "cons", etc.)
+          echo "$output" | grep -qi "car\|list\|cons\|first\|pair" || (echo "FAIL: Expected documentation for CAR" && exit 1)
 
       - name: Test ,apropos command
         run: |
