@@ -275,6 +275,8 @@
   "Stop the Dockview browser."
   ;; Stop the eval generation poller if running
   (stop-eval-generation-poller)
+  ;; Stop the WebSocket keepalive thread
+  (stop-ws-keepalive)
   (when *browser-acceptor*
     ;; Signal the browser-repl thread to exit by sending nil (EOF) to input queue
     (when *repl-resource*

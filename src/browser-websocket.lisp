@@ -51,6 +51,30 @@
    (input-queue :accessor input-queue :initform (make-instance 'chanl:unbounded-channel)))
   (:documentation "WebSocket resource for REPL connections."))
 
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; WebSocket Keepalive
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun start-ws-keepalive ()
+  "Start the WebSocket keepalive thread if not already running."
+  (unless *ws-keepalive-thread*
+    (setf *ws-keepalive-thread*
+          (bt:make-thread
+           (lambda ()
+             (loop
+               (sleep *ws-keepalive-interval*)
+               (when *repl-resource*
+                 (dolist (client (hunchensocket:clients *repl-resource*))
+                   (ignore-errors
+                     (hunchensocket:send-ping client))))))
+           :name "ws-keepalive"))))
+
+(defun stop-ws-keepalive ()
+  "Stop the WebSocket keepalive thread."
+  (when (and *ws-keepalive-thread* (bt:thread-alive-p *ws-keepalive-thread*))
+    (bt:destroy-thread *ws-keepalive-thread*))
+  (setf *ws-keepalive-thread* nil))
+
 (defclass repl-client (hunchensocket:websocket-client)
   ()
   (:documentation "A connected REPL client."))
@@ -75,6 +99,8 @@
       ;; Close the new connection - only one browser allowed
       (hunchensocket:close-connection client :reason "Only one browser connection allowed")
       (return-from hunchensocket:client-connected)))
+  ;; Start keepalive to prevent connection timeouts
+  (start-ws-keepalive)
   ;; Send current theme to newly connected client
   (when *current-browser-theme*
     (send-browser-theme-to-client client *current-browser-theme*))
@@ -82,7 +108,10 @@
   )
 
 (defmethod hunchensocket:client-disconnected ((resource repl-resource) client)
-  (declare (ignore client)))
+  (declare (ignore client))
+  ;; Stop keepalive when no more clients are connected
+  (unless (hunchensocket:clients resource)
+    (stop-ws-keepalive)))
 
 (defmethod hunchensocket:text-message-received ((resource repl-resource) client message)
   "Handle incoming WebSocket messages."

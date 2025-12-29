@@ -65,5 +65,11 @@
 (defvar *ws-flush-timer-lock* (bt:make-lock "ws-flush-timer-lock")
   "Lock for WebSocket flush timer.")
 
+(defvar *ws-keepalive-thread* nil
+  "Thread that sends periodic WebSocket pings to prevent timeouts.")
+
+(defvar *ws-keepalive-interval* 30
+  "Interval in seconds between WebSocket ping frames.")
+
 (defvar *assets-directory* nil
   "Directory containing browser assets (JS, CSS). Computed lazily at runtime.")
