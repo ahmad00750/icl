@@ -40,12 +40,13 @@
   <script src='/assets/xterm.min.js'></script>
   <script src='/assets/xterm-addon-fit.min.js'></script>
   <script src='/assets/viz-standalone.js'></script>
-  <script src='/assets/monaco/vs/loader.js'></script>
   <script src='/assets/vega.min.js'></script>
   <script src='/assets/vega-lite.min.js'></script>
   <script src='/assets/vega-embed.min.js'></script>
   <script src='/assets/mermaid.min.js'></script>
   <script src='/assets/regulex.js'></script>
+  <!-- Monaco loader MUST be after Vega/Regulex to avoid AMD conflicts -->
+  <script src='/assets/monaco/vs/loader.js'></script>
 
   <!-- Main application script -->
   <script src='/assets/browser.js'></script>
