@@ -531,20 +531,30 @@ Example: ,source my-function"
    `(cl:funcall (cl:read-from-string "slynk:find-definitions-for-emacs") ,name)
    *slynk-connection*))
 
-(defun position-to-line (file-path position)
-  "Convert character POSITION (1-based) to line number in FILE-PATH."
-  (when (and file-path (probe-file file-path) position)
-    (with-open-file (in file-path :direction :input)
-      (let ((line 1)
-            (char-count 0))
-        (loop for ch = (read-char in nil nil)
-              while ch
-              do (incf char-count)
-                 (when (>= char-count position)
-                   (return line))
-                 (when (char= ch #\Newline)
-                   (incf line)))
-        line))))
+(defun position-to-line-from-string (content position)
+  "Convert character POSITION (1-based) to line number in CONTENT string."
+  (when (and content position (> position 0))
+    (let ((line 1))
+      (loop for i from 0 below (min position (length content))
+            for ch = (char content i)
+            when (char= ch #\Newline)
+              do (incf line))
+      line)))
+
+(defun slynk-read-file (file-path)
+  "Read file contents via Slynk (for remote files).
+Returns the file content as a string, or NIL if not available."
+  (when *slynk-connected-p*
+    (handler-case
+        (slynk-client:slime-eval
+         `(cl:ignore-errors
+           (cl:with-open-file (s ,file-path :direction :input)
+             (cl:let* ((len (cl:file-length s))
+                       (str (cl:make-string len)))
+               (cl:read-sequence str s)
+               str)))
+         *slynk-connection*)
+      (error () nil))))
 
 (defun open-source-for-definition (location symbol-name)
   "Open Monaco source panel for a source LOCATION from Slynk."
@@ -574,15 +584,21 @@ Example: ,source my-function"
         (t
          (format *error-output* "~&Unknown location format: ~S~%" loc-data)
          (return-from open-source-for-definition nil)))
-      ;; Open the source panel
+      ;; Open the source panel - try local first, then remote via Slynk
       (cond
-        ((and file (probe-file file))
-         (let ((line (when pos (position-to-line file pos))))
-           (icl::open-source-panel symbol-name file :line line)))
-        (file
-         (format *error-output* "~&File not found: ~A~%" file))
+        ((null file)
+         (format *error-output* "~&No file path in location~%"))
         (t
-         (format *error-output* "~&No file path in location~%"))))))
+         (let* ((content (if (probe-file file)
+                             ;; Local file available
+                             (uiop:read-file-string file)
+                             ;; Try fetching via Slynk (remote file)
+                             (slynk-read-file file)))
+                (line (when (and content pos)
+                        (position-to-line-from-string content pos))))
+           (if content
+               (icl::open-source-panel symbol-name file :line line :content content)
+               (format *error-output* "~&File not accessible: ~A~%" file))))))))
 
 (defun format-source-location (location)
   "Format and print a source location from Slynk."

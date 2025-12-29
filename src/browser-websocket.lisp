@@ -921,24 +921,30 @@ pre { margin: 0; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono',
         (setf (gethash "sourceExpr" obj) source-expr)
         (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj))))))
 
-(defun open-source-panel (title file-path &key position line)
+(defun open-source-panel (title file-path &key position line content)
   "Send message to browser to open a Monaco source viewer panel.
    FILE-PATH is the path to the source file.
    POSITION is the character position (1-based) to highlight/scroll to.
-   LINE is the line number (1-based) to scroll to (alternative to position)."
-  (when (and *repl-resource* (probe-file file-path))
-    (let ((content (uiop:read-file-string file-path)))
-      (dolist (client (hunchensocket:clients *repl-resource*))
-        (let ((obj (make-hash-table :test 'equal)))
-          (setf (gethash "type" obj) "open-source")
-          (setf (gethash "title" obj) title)
-          (setf (gethash "path" obj) (namestring file-path))
-          (setf (gethash "content" obj) content)
-          (when position
-            (setf (gethash "position" obj) position))
-          (when line
-            (setf (gethash "line" obj) line))
-          (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj)))))))
+   LINE is the line number (1-based) to scroll to (alternative to position).
+   CONTENT is optional pre-fetched file content (for remote files)."
+  (when *repl-resource*
+    (let ((source-content (or content
+                              (when (probe-file file-path)
+                                (uiop:read-file-string file-path)))))
+      (when source-content
+        (dolist (client (hunchensocket:clients *repl-resource*))
+          (let ((obj (make-hash-table :test 'equal)))
+            (setf (gethash "type" obj) "open-source")
+            (setf (gethash "title" obj) title)
+            (setf (gethash "path" obj) (if (pathnamep file-path)
+                                           (namestring file-path)
+                                           file-path))
+            (setf (gethash "content" obj) source-content)
+            (when position
+              (setf (gethash "position" obj) position))
+            (when line
+              (setf (gethash "line" obj) line))
+            (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj))))))))
 
 (defun needs-case-escape-p (str)
   "Return T if STR contains lowercase letters that would be upcased by the reader."
