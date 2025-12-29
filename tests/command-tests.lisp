@@ -55,6 +55,65 @@
                 "Qualified symbols should resolve to their specified package")))
       (delete-package test-pkg))))
 
+;;; Disassemble command symbol resolution tests
+
+(test dis-resolves-symbol-in-icl-package
+  "Test that ,dis resolves symbols using *icl-package* context"
+  ;; This tests the exact logic used in slynk-disassemble
+  (let ((test-pkg (or (find-package :icl-dis-test-pkg)
+                      (make-package :icl-dis-test-pkg))))
+    (unwind-protect
+        (progn
+          ;; Intern a function symbol in test package
+          (intern "MY-FUNCTION" test-pkg)
+          ;; Simulate being in test package via *icl-package*
+          (let ((icl::*icl-package* test-pkg))
+            ;; This is the exact pattern from slynk-disassemble
+            (let* ((name "my-function")
+                   (sym (let ((*package* (or icl::*icl-package* *package*)))
+                          (read-from-string (string-upcase name))))
+                   (full-name (if (symbol-package sym)
+                                  (format nil "~A::~A"
+                                          (package-name (symbol-package sym))
+                                          (symbol-name sym))
+                                  (symbol-name sym))))
+              ;; Should produce fully qualified name in test package
+              (is (string= full-name "ICL-DIS-TEST-PKG::MY-FUNCTION")
+                  "Symbol should be qualified with *icl-package*"))))
+      (delete-package test-pkg))))
+
+(test dis-resolves-cl-symbol-correctly
+  "Test that ,dis resolves CL symbols regardless of *icl-package*"
+  ;; Use CL-USER which inherits from CL
+  (let ((icl::*icl-package* (find-package :cl-user)))
+    ;; CAR should resolve to CL:CAR
+    (let* ((name "car")
+           (sym (let ((*package* (or icl::*icl-package* *package*)))
+                  (read-from-string (string-upcase name))))
+           (full-name (if (symbol-package sym)
+                          (format nil "~A::~A"
+                                  (package-name (symbol-package sym))
+                                  (symbol-name sym))
+                          (symbol-name sym))))
+      ;; CAR is inherited from CL, so should be CL::CAR
+      (is (string= full-name "COMMON-LISP::CAR")
+          "CL symbols should resolve to COMMON-LISP package"))))
+
+(test dis-handles-explicit-package-prefix
+  "Test that ,dis handles explicitly qualified symbols"
+  (let ((icl::*icl-package* (find-package :cl-user)))
+    ;; Explicitly qualified symbol should use that package
+    (let* ((name "cl:length")
+           (sym (let ((*package* (or icl::*icl-package* *package*)))
+                  (read-from-string (string-upcase name))))
+           (full-name (if (symbol-package sym)
+                          (format nil "~A::~A"
+                                  (package-name (symbol-package sym))
+                                  (symbol-name sym))
+                          (symbol-name sym))))
+      (is (string= full-name "COMMON-LISP::LENGTH")
+          "Explicitly qualified symbols should resolve correctly"))))
+
 ;;; Command parsing tests
 
 (test split-command-line-simple
