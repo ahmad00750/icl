@@ -2,15 +2,15 @@
 
 ## New Features
 
-### Monaco Editor Integration
-The browser interface now uses Monaco Editor (the engine behind VS Code) instead of highlight.js for all code viewing panels. This brings a rich editing and viewing experience with:
+### Monaco Source Viewer
+The browser interface now uses Monaco (the engine behind VS Code) instead of highlight.js for all code viewing panels. This brings a rich viewing experience with:
 
 - **Syntax Highlighting**: Full Common Lisp language support with proper tokenization for keywords, special variables, constants, strings, and comments
 - **Hover Documentation**: Hover over any symbol to see its documentation and argument list via Slynk
 - **Symbol Navigation**: Click any symbol to look it up in the Packages/Symbols/Symbol Info panels
-- **Search**: Use Ctrl+F to search within any Monaco panel
+- **Search**: Use Ctrl+F to search within any source panel
 - **Copy to REPL**: Right-click context menu to send code to the REPL with automatic focus transfer
-- **Theme Support**: Monaco panels automatically follow ICL's light/dark theme changes
+- **Theme Support**: Source panels automatically follow ICL's light/dark theme changes
 
 ### Multiple Definition Support for ,source
 The `,source` command now shows all definitions for a symbol (e.g., function, compiler macro, setf expander) with a dropdown selector, instead of picking just one.
@@ -26,10 +26,10 @@ The `,cover-file` command has been renamed to `,cover-load` for consistency with
 
 ## Bug Fixes
 
-- Fix Monaco editor not responding to theme changes
+- Fix source panels not responding to theme changes
 - Fix theme detection using darkP property from Lisp
 - Fix AMD loader conflict by loading Monaco after Vega/Regulex
-- Fix serving font files (.ttf, .woff, .woff2) for Monaco editor icons
+- Fix serving font files (.ttf, .woff, .woff2) for Monaco icons
 - Fix code coverage to work with remote Slynk servers
 
 ## Breaking Changes
