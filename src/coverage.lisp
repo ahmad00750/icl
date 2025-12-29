@@ -164,27 +164,30 @@ Returns JSON string with file contents and coverage annotations."
            ;; Check file size before processing
            (let ((file-size (with-open-file (s file) (file-length s))))
              (when (< file-size max-file-size)
-               (incf file-count)
-               (let* ((content (read-file-to-string file))
-                      (annotations nil)
-                      (expr-covered 0) (expr-total 0)
-                      (branch-covered 0) (branch-total 0)
-                      (all-maps (make-hash-table :test 'eq))
-                      (forms nil)
-                      (max-records 2000)  ; Limit records per file
-                      (record-count 0))
+               ;; Wrap in handler-case to skip files with reader errors
+               (handler-case
+                   (progn
+                     (incf file-count)
+                     (let* ((content (read-file-to-string file))
+                            (annotations nil)
+                            (expr-covered 0) (expr-total 0)
+                            (branch-covered 0) (branch-total 0)
+                            (all-maps (make-hash-table :test 'eq))
+                            (forms nil)
+                            (max-records 2000)  ; Limit records per file
+                            (record-count 0))
 
-             ;; Read all forms to build source map
-             (with-open-file (stream file :direction :input)
-               (let ((sb-cover::*current-package* *package*))
-                 (loop
-                   (multiple-value-bind (form source-map)
-                       (funcall (find-symbol \"READ-AND-RECORD-SOURCE-MAP\" \"SB-COVER\") stream)
-                     (when (eq form sb-int:*eof-object*)
-                       (return))
-                     (push form forms)
-                     (maphash (lambda (k v) (setf (gethash k all-maps) v)) source-map)))))
-             (setf forms (nreverse forms))
+                       ;; Read all forms to build source map
+                       (with-open-file (stream file :direction :input)
+                         (let ((sb-cover::*current-package* *package*))
+                           (loop
+                             (multiple-value-bind (form source-map)
+                                 (funcall (find-symbol \"READ-AND-RECORD-SOURCE-MAP\" \"SB-COVER\") stream)
+                               (when (eq form sb-int:*eof-object*)
+                                 (return))
+                               (push form forms)
+                               (maphash (lambda (k v) (setf (gethash k all-maps) v)) source-map)))))
+                       (setf forms (nreverse forms))
 
              ;; Process each coverage record (with limit)
              (dolist (record records)
@@ -236,15 +239,17 @@ Returns JSON string with file contents and coverage annotations."
                                      :is-branch is-branch)
                                annotations)))))))
 
-             ;; Add file data
-             (push (list :path file
-                         :content content
-                         :annotations (nreverse annotations)
-                         :summary (list :expr-covered expr-covered
-                                       :expr-total expr-total
-                                       :branch-covered branch-covered
-                                       :branch-total branch-total))
-                   files-data))))))  ; extra )) for file-size when + let
+                       ;; Add file data
+                       (push (list :path file
+                                   :content content
+                                   :annotations (nreverse annotations)
+                                   :summary (list :expr-covered expr-covered
+                                                 :expr-total expr-total
+                                                 :branch-covered branch-covered
+                                                 :branch-total branch-total))
+                             files-data)))
+                 ;; Skip files that cause reader errors
+                 (error () nil))))))
        ht)
 
       ;; Return the data
@@ -254,7 +259,11 @@ Returns JSON string with file contents and coverage annotations."
          (result-string (first raw-result))
          (result (when (and result-string (stringp result-string))
                    (ignore-errors (read-from-string result-string)))))
-    (if result
+    ;; Check for error result (dotted pair like (:error . "message"))
+    (when (and (consp result) (eq (car result) :error))
+      (format *error-output* "~&Coverage extraction failed: ~A~%" (cdr result))
+      (return-from backend-coverage-json nil))
+    (if (and result (listp result))
         ;; Convert to JSON
         (let ((json-obj (make-hash-table :test 'equal))
               (files-array (make-array (length result) :fill-pointer 0)))
