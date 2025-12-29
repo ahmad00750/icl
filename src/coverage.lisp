@@ -104,193 +104,276 @@ Uses COMPILE-FILE + LOAD to ensure coverage data is collected."
     (fresh-line)
     nil))
 
+(defvar *coverage-temp-dir* nil
+  "Path to current coverage HTML temp directory for on-demand file parsing.")
+
 (defun backend-coverage-json ()
-  "Extract coverage data by generating sb-cover HTML and parsing it.
-This approach works with files using custom reader macros because
-sb-cover generates HTML in the backend where the macros are available."
+  "Generate sb-cover HTML and return lightweight file index with percentages.
+Does NOT parse individual files - that's done on-demand by backend-coverage-file-detail."
   (unless *slynk-connected-p*
     (error "Not connected to backend"))
-  ;; Generate HTML report in backend, parse it, extract coverage data
+  ;; Generate HTML report and return just the index (lightweight)
   (let* ((extract-code "
 (handler-case
 (progn
   (require 'sb-cover)
-
-  (labels (;; Read file to string
-           (read-file-to-string (path)
-             (with-open-file (stream path :direction :input)
-               (let ((content (make-string (file-length stream))))
-                 (read-sequence content stream)
-                 content)))
-
-           ;; Decode HTML entities
-           (decode-entities (str)
-             (let ((result str))
-               (setf result (cl-ppcre:regex-replace-all \"&#160;\" result \" \"))
-               (setf result (cl-ppcre:regex-replace-all \"&#40;\" result \"(\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#41;\" result \")\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#59;\" result \";\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#39;\" result \"'\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#34;\" result \"\\\"\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#35;\" result \"#\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#38;\" result \"&\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#60;\" result \"<\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#62;\" result \">\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#46;\" result \".\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#45;\" result \"-\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#58;\" result \":\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#44;\" result \",\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#47;\" result \"/\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#64;\" result \"@\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#42;\" result \"*\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#43;\" result \"+\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#91;\" result \"[\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#93;\" result \"]\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#126;\" result \"~\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#95;\" result \"_\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#36;\" result \"$\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#124;\" result \"|\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#92;\" result \"\\\\\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#123;\" result \"{\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#125;\" result \"}\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#96;\" result \"`\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#94;\" result \"^\"))
-               (setf result (cl-ppcre:regex-replace-all \"&#37;\" result \"%\"))
-               (cl-ppcre:regex-replace-all \"&#[0-9]+;\" result \"\")))
-
-           ;; Parse a single HTML file, return file data
-           (parse-coverage-html (html-path source-path)
-             (let* ((html (read-file-to-string html-path))
-                    (lines nil)
-                    (line-coverages (make-hash-table))
-                    (expr-covered 0) (expr-total 0)
-                    (branch-covered 0) (branch-total 0))
-               ;; Extract summary from table
-               (cl-ppcre:register-groups-bind (ec et)
-                   (\"expression</td><td>([0-9]+)</td><td>([0-9]+)\" html)
-                 (setf expr-covered (parse-integer ec)
-                       expr-total (parse-integer et)))
-               (cl-ppcre:register-groups-bind (bc bt)
-                   (\"branch</td><td>([0-9]+)</td><td>([0-9]+)\" html)
-                 (setf branch-covered (parse-integer bc)
-                       branch-total (parse-integer bt)))
-               ;; Parse each source line
-               (cl-ppcre:do-register-groups (line-num line-content)
-                   (\"<div class='line-number'><code>([0-9]+)</code></div><code>([^<]*(?:<[^>]+>[^<]*)*)</code>\" html)
-                 (let ((ln (parse-integer line-num))
-                       (states nil))
-                   ;; Extract states from spans in this line
-                   (cl-ppcre:do-register-groups (state-num)
-                       (\"state-([0-9]+)\" line-content)
-                     (let ((s (parse-integer state-num)))
-                       (unless (member s '(0 15))  ; Skip not-instrumented and conditionalized-out
-                         (pushnew s states))))
-                   ;; Determine line state
-                   (when states
-                     (setf (gethash ln line-coverages)
-                           (cond
-                             ((member 1 states) :executed)
-                             ((member 5 states) :both-branches)
-                             ((or (member 6 states) (member 9 states)) :one-branch)
-                             ((member 2 states) :not-executed)
-                             ((member 10 states) :neither-branch)
-                             (t nil))))
-                   ;; Build source line (strip HTML)
-                   (push (cons ln (decode-entities
-                                   (cl-ppcre:regex-replace-all \"<[^>]+>\" line-content \"\")))
-                         lines)))
-               ;; Build annotations from line-coverages
-               (let ((annotations nil))
-                 (maphash (lambda (line state)
-                            (when state
-                              (push (list :start-line line :start-col 1
-                                          :end-line line :end-col 1000
-                                          :state state
-                                          :is-branch (member state '(:both-branches :one-branch :neither-branch)))
-                                    annotations)))
-                          line-coverages)
-                 ;; Reconstruct source from lines
-                 (let* ((sorted-lines (sort lines #'< :key #'car))
-                        (source (with-output-to-string (s)
-                                  (dolist (l sorted-lines)
-                                    (format s \"~A~%\" (cdr l))))))
-                   (list :path source-path
-                         :content source
-                         :annotations annotations
-                         :summary (list :expr-covered expr-covered
-                                       :expr-total expr-total
-                                       :branch-covered branch-covered
-                                       :branch-total branch-total)))))))
-
-    ;; Generate HTML report to temp directory
-    (let* ((temp-dir (merge-pathnames
-                      (format nil \"icl-cover-~A/\" (get-universal-time))
-                      (uiop:temporary-directory)))
-           (files-data nil))
-      (ensure-directories-exist temp-dir)
-      (sb-cover:report temp-dir)
-
-      ;; Read cover-index.html to get file list
-      (let* ((index-path (merge-pathnames \"cover-index.html\" temp-dir))
-             (index-html (read-file-to-string index-path)))
-        ;; Parse file links: <a href='HASH.html'>PATH</a>
-        (cl-ppcre:do-register-groups (hash path)
-            (\"<a href='([a-f0-9]+)\\.html'>([^<]+)</a>\" index-html)
-          (let ((html-path (merge-pathnames (format nil \"~A.html\" hash) temp-dir)))
-            (when (probe-file html-path)
-              (handler-case
-                  (let ((file-data (parse-coverage-html html-path path)))
-                    (when file-data
-                      (push file-data files-data)))
-                (error () nil))))))
-
-      ;; Clean up temp files
-      (dolist (path (directory (merge-pathnames \"*.html\" temp-dir)))
-        (ignore-errors (delete-file path)))
-      (ignore-errors (uiop:delete-directory-tree temp-dir :validate t))
-
-      (or files-data (list :error \"No coverage data found.\")))))
+  (let* ((temp-dir (merge-pathnames
+                    (format nil \"icl-cover-~A/\" (get-universal-time))
+                    (uiop:temporary-directory)))
+         (files-list nil))
+    (ensure-directories-exist temp-dir)
+    ;; Suppress warnings from sb-cover:report (source location errors)
+    (handler-bind ((warning #'muffle-warning))
+      (sb-cover:report temp-dir))
+    ;; Parse only the index file for file list with percentages
+    (let* ((index-path (merge-pathnames \"cover-index.html\" temp-dir)))
+      (with-open-file (stream index-path :direction :input :if-does-not-exist nil)
+        (when stream
+          (let* ((html (make-string (file-length stream))))
+            (read-sequence html stream)
+            ;; Parse table rows: <a href='HASH.html'>FILENAME</a> then <td>covered</td><td>total</td><td>%</td>
+            (let ((pos 0))
+              (loop
+                (let ((href-start (search \"<a href='\" html :start2 pos)))
+                  (unless href-start (return))
+                  (let* ((hash-start (+ href-start 9))
+                         (dot-pos (search \".html'>\" html :start2 hash-start))
+                         (hash (when dot-pos (subseq html hash-start dot-pos)))
+                         (name-start (when dot-pos (+ dot-pos 7)))
+                         (name-end (when name-start (search \"</a>\" html :start2 name-start)))
+                         (filename (when name-end (subseq html name-start name-end))))
+                    ;; Find the <tr class='subheading'> rows to get directory context
+                    ;; For now just use filename, we can enhance later
+                    (when (and hash filename (> (length hash) 0))
+                      ;; Parse the percentage from following <td> cells
+                      (let* ((td1-start (search \"<td>\" html :start2 name-end))
+                             (td1-end (when td1-start (search \"</td>\" html :start2 (+ td1-start 4))))
+                             (expr-covered (when td1-end (ignore-errors (parse-integer (subseq html (+ td1-start 4) td1-end)))))
+                             (td2-start (when td1-end (search \"<td>\" html :start2 td1-end)))
+                             (td2-end (when td2-start (search \"</td>\" html :start2 (+ td2-start 4))))
+                             (expr-total (when td2-end (ignore-errors (parse-integer (subseq html (+ td2-start 4) td2-end))))))
+                        (push (list :hash hash
+                                    :filename filename
+                                    :expr-covered (or expr-covered 0)
+                                    :expr-total (or expr-total 0))
+                              files-list)))
+                    (setf pos (or name-end (1+ pos)))))))))))
+    ;; Return temp-dir and file list
+    (list :temp-dir (namestring temp-dir)
+          :files (nreverse files-list))))
   (error (e) (list :error (princ-to-string e))))")
-         (raw-result (backend-eval-internal extract-code))
+         (raw-result (handler-case
+                         (backend-eval-internal extract-code)
+                       (error () nil)))
          (result-string (first raw-result))
          (result (when (and result-string (stringp result-string))
                    (ignore-errors (read-from-string result-string)))))
-    ;; Check for error result (dotted pair like (:error . "message"))
+    ;; Store temp-dir for on-demand file parsing
+    (when (and result (listp result) (getf result :temp-dir))
+      (setf *coverage-temp-dir* (getf result :temp-dir)))
+    ;; Check for error
     (when (and (consp result) (eq (car result) :error))
-      (format *error-output* "~&Coverage extraction failed: ~A~%" (cdr result))
+      (format *error-output* "~&Coverage extraction failed: ~A~%" (getf result :error))
       (return-from backend-coverage-json nil))
-    (if (and result (listp result))
-        ;; Convert to JSON
+    ;; Convert to JSON format for frontend
+    (if (and result (listp result) (getf result :files))
         (let ((json-obj (make-hash-table :test 'equal))
-              (files-array (make-array (length result) :fill-pointer 0)))
-          (dolist (file-data result)
-            (let ((file-obj (make-hash-table :test 'equal))
-                  (ann-array (make-array (length (getf file-data :annotations)) :fill-pointer 0)))
-              (setf (gethash "path" file-obj) (getf file-data :path))
-              (setf (gethash "content" file-obj) (getf file-data :content))
-              ;; Convert annotations
-              (dolist (ann (getf file-data :annotations))
-                (let ((ann-obj (make-hash-table :test 'equal)))
-                  (setf (gethash "startLine" ann-obj) (getf ann :start-line))
-                  (setf (gethash "startCol" ann-obj) (getf ann :start-col))
-                  (setf (gethash "endLine" ann-obj) (getf ann :end-line))
-                  (setf (gethash "endCol" ann-obj) (getf ann :end-col))
-                  (setf (gethash "state" ann-obj) (string-downcase (symbol-name (getf ann :state))))
-                  (setf (gethash "isBranch" ann-obj) (getf ann :is-branch))
-                  (vector-push-extend ann-obj ann-array)))
-              (setf (gethash "annotations" file-obj) ann-array)
-              ;; Summary
-              (let ((summary (getf file-data :summary))
-                    (sum-obj (make-hash-table :test 'equal)))
-                (setf (gethash "exprCovered" sum-obj) (getf summary :expr-covered))
-                (setf (gethash "exprTotal" sum-obj) (getf summary :expr-total))
-                (setf (gethash "branchCovered" sum-obj) (getf summary :branch-covered))
-                (setf (gethash "branchTotal" sum-obj) (getf summary :branch-total))
-                (setf (gethash "summary" file-obj) sum-obj))
+              (files-array (make-array (length (getf result :files)) :fill-pointer 0)))
+          (setf (gethash "tempDir" json-obj) (getf result :temp-dir))
+          (dolist (file-info (getf result :files))
+            (let ((file-obj (make-hash-table :test 'equal)))
+              (setf (gethash "hash" file-obj) (getf file-info :hash))
+              (setf (gethash "filename" file-obj) (getf file-info :filename))
+              (setf (gethash "exprCovered" file-obj) (getf file-info :expr-covered))
+              (setf (gethash "exprTotal" file-obj) (getf file-info :expr-total))
               (vector-push-extend file-obj files-array)))
           (setf (gethash "files" json-obj) files-array)
-          (com.inuoe.jzon:stringify json-obj))
+          (with-output-to-string (s)
+            (yason:encode json-obj s)))
         nil)))
+
+(defun backend-coverage-file-detail (hash)
+  "Parse a single coverage HTML file on-demand and return content + annotations.
+HASH is the filename hash from the index (e.g. '58047fd52011a5ec4d2f31d3d209b75d')."
+  (unless *slynk-connected-p*
+    (error "Not connected to backend"))
+  (unless *coverage-temp-dir*
+    (error "No coverage data available. Run ,cover-load first."))
+  ;; Parse the specific HTML file in the backend
+  (let* ((parse-code (format nil "
+(handler-case
+(progn
+  (labels ((starts-with-at (str prefix pos)
+             (let ((plen (length prefix)))
+               (and (<= (+ pos plen) (length str))
+                    (string= prefix str :start2 pos :end2 (+ pos plen)))))
+           (state-keyword (n)
+             (case n
+               (0 :not-instrumented)
+               (1 :executed)
+               (2 :not-executed)
+               (5 :both-branches)
+               ((6 9) :one-branch)
+               (10 :neither-branch)
+               (15 :conditionalized-out)
+               (t :unknown)))
+           (branch-state-p (n)
+             (member n '(5 6 9 10)))
+           (parse-line-spans (line-html line-num)
+             ;; span-stack entries: (initial-col state-num first-content-col)
+             ;; first-content-col is nil until first non-whitespace char
+             (let ((annotations nil) (col 0) (pos 0) (span-stack nil) (len (length line-html)))
+               (labels ((update-first-content ()
+                          ;; Set first-content-col for any spans that don't have it yet
+                          (dolist (entry span-stack)
+                            (when (null (third entry))
+                              (setf (third entry) col))))
+                        (whitespace-char-p (c)
+                          (or (char= c #\\Space) (char= c #\\Tab))))
+                 (loop while (< pos len) do
+                   (let ((ch (char line-html pos)))
+                     (cond
+                       ((char= ch #\\<)
+                        (cond
+                          ((starts-with-at line-html \"<span class='state-\" pos)
+                           (let* ((state-pos (+ pos 19))
+                                  (quote-pos (position #\\' line-html :start state-pos))
+                                  (state-num (parse-integer (subseq line-html state-pos quote-pos)))
+                                  (gt-pos (position #\\> line-html :start quote-pos)))
+                             (push (list col state-num nil) span-stack)
+                             (setf pos (1+ gt-pos))))
+                          ((starts-with-at line-html \"</span>\" pos)
+                           (when span-stack
+                             (let* ((start-info (pop span-stack))
+                                    (first-content-col (or (third start-info) (first start-info)))
+                                    (state-num (second start-info)))
+                               (when (> col first-content-col)
+                                 (push (list :start-line line-num :start-col (1+ first-content-col)
+                                             :end-line line-num :end-col (1+ col)
+                                             :state (state-keyword state-num)
+                                             :is-branch (branch-state-p state-num))
+                                       annotations))))
+                           (setf pos (+ pos 7)))
+                          (t (let ((gt-pos (position #\\> line-html :start pos)))
+                               (setf pos (1+ (or gt-pos pos)))))))
+                       ((char= ch #\\&)
+                        (let ((semi-pos (position #\\; line-html :start pos)))
+                          (if semi-pos
+                              (let ((entity (subseq line-html pos (1+ semi-pos))))
+                                ;; Treat &nbsp; and &#160; as whitespace (don't set first-content-col)
+                                (unless (and span-stack
+                                             (or (string= entity \"&nbsp;\")
+                                                 (string= entity \"&#160;\")))
+                                  (update-first-content))
+                                (incf col) (setf pos (1+ semi-pos)))
+                              (progn (update-first-content) (incf col) (incf pos)))))
+                       (t
+                        (unless (whitespace-char-p ch)
+                          (update-first-content))
+                        (incf col) (incf pos))))))
+               (nreverse annotations))))
+    (let* ((html-path (merge-pathnames \"~A.html\" \"~A\"))
+           (html nil)
+           (source-path nil)
+           (all-annotations nil)
+           (source-lines nil))
+      (with-open-file (stream html-path :direction :input :if-does-not-exist nil)
+        (when stream
+          (setf html (make-string (file-length stream)))
+          (read-sequence html stream)))
+      (when html
+        ;; Extract source path
+        (let ((title-start (search \"Coverage report: \" html)))
+          (when title-start
+            (let* ((path-start (+ title-start 17))
+                   (path-end (position #\\< html :start path-start)))
+              (when path-end
+                (setf source-path (string-trim \" \" (subseq html path-start path-end)))))))
+        ;; Parse lines
+        (let ((pos 0))
+          (loop
+            (let ((line-start (search \"<div class='line-number'><code>\" html :start2 pos)))
+              (unless line-start (return))
+              (let* ((num-start (+ line-start 31))
+                     (num-end (search \"</code>\" html :start2 num-start))
+                     (line-num (parse-integer (subseq html num-start num-end)))
+                     (content-marker (search \"</div>\" html :start2 num-end))
+                     (content-start (when content-marker (+ content-marker 6)))
+                     (line-end (search \"</div></nobr>\" html :start2 (or content-start num-end))))
+                (when (and content-start line-end)
+                  (let* ((line-html (subseq html content-start line-end))
+                         ;; Skip <code>&#160; that sb-cover adds to every line (12 chars)
+                         (skip-leading (if (and (>= (length line-html) 12)
+                                                (string= \"<code>&#160;\" (subseq line-html 0 12)))
+                                           12 0))
+                         (line-html-trimmed (subseq line-html skip-leading)))
+                    (setf all-annotations (nconc all-annotations (parse-line-spans line-html-trimmed line-num)))
+                    ;; Decode HTML to plain text
+                    (let ((decoded (make-string-output-stream)) (lpos 0) (llen (length line-html-trimmed)))
+                      (loop while (< lpos llen) do
+                        (let ((ch (char line-html-trimmed lpos)))
+                          (cond
+                            ((char= ch #\\<)
+                             (let ((gt (position #\\> line-html-trimmed :start lpos)))
+                               (setf lpos (1+ (or gt lpos)))))
+                            ((char= ch #\\&)
+                             (let ((semi (position #\\; line-html-trimmed :start lpos)))
+                               (if semi
+                                   (let ((entity (subseq line-html-trimmed (1+ lpos) semi)))
+                                     (write-char
+                                      (cond ((string= entity \"lt\") #\\<)
+                                            ((string= entity \"gt\") #\\>)
+                                            ((string= entity \"amp\") #\\&)
+                                            ((string= entity \"quot\") #\\\")
+                                            ((string= entity \"apos\") #\\')
+                                            ((string= entity \"nbsp\") #\\Space)
+                                            ((string= entity \"#160\") #\\Space)  ;; NBSP -> regular space
+                                            ((and (> (length entity) 1) (char= (char entity 0) #\\#))
+                                             (let ((code (parse-integer entity :start 1)))
+                                               (if (= code 160) #\\Space (code-char code))))
+                                            (t #\\?))
+                                      decoded)
+                                     (setf lpos (1+ semi)))
+                                   (progn (write-char ch decoded) (incf lpos)))))
+                            (t (write-char ch decoded) (incf lpos)))))
+                      (push (get-output-stream-string decoded) source-lines))))
+                (setf pos (or line-end (1+ pos))))))))
+      (list :path source-path
+            :content (format nil \"~~{~~A~~^~~%~~}\" (nreverse source-lines))
+            :annotations all-annotations))))
+  (error (e) (list :error (princ-to-string e))))" hash *coverage-temp-dir*))
+         (raw-result (handler-case
+                         (backend-eval-internal parse-code)
+                       (error (e)
+                         (format *error-output* "~&backend-coverage-file-detail error: ~A~%" e)
+                         nil)))
+         (result-string (first raw-result))
+         (result (when (and result-string (stringp result-string))
+                   (ignore-errors (read-from-string result-string)))))
+    ;; Check for error
+    (when (and (consp result) (eq (car result) :error))
+      (format *error-output* "~&File detail extraction failed: ~A~%" (getf result :error))
+      (return-from backend-coverage-file-detail nil))
+    ;; Convert to JSON
+    (when result
+      (let ((json-obj (make-hash-table :test 'equal)))
+        (setf (gethash "path" json-obj) (or (getf result :path) ""))
+        (setf (gethash "content" json-obj) (or (getf result :content) ""))
+        ;; Convert annotations
+        (let ((annotations (getf result :annotations))
+              (ann-array (make-array 0 :fill-pointer 0 :adjustable t)))
+          (dolist (ann annotations)
+            (let ((ann-obj (make-hash-table :test 'equal)))
+              (setf (gethash "startLine" ann-obj) (getf ann :start-line))
+              (setf (gethash "startCol" ann-obj) (getf ann :start-col))
+              (setf (gethash "endLine" ann-obj) (getf ann :end-line))
+              (setf (gethash "endCol" ann-obj) (getf ann :end-col))
+              (setf (gethash "state" ann-obj) (string-downcase (symbol-name (getf ann :state))))
+              (setf (gethash "isBranch" ann-obj) (if (getf ann :is-branch) t nil))
+              (vector-push-extend ann-obj ann-array)))
+          (setf (gethash "annotations" json-obj) ann-array))
+        (with-output-to-string (s)
+          (yason:encode json-obj s))))))
 
 (defun backend-coverage-report ()
   "Generate coverage HTML report in backend and transfer files to ICL.
@@ -372,26 +455,43 @@ Returns the report ID for serving."
 
 ;;; Panel integration
 
+(defun send-coverage-loading-message (&optional title)
+  "Send message to browser to show coverage loading spinner."
+  (when *repl-resource*
+    (dolist (client (hunchensocket:clients *repl-resource*))
+      (let ((obj (make-hash-table :test 'equal)))
+        (setf (gethash "type" obj) "coverage-loading")
+        (setf (gethash "title" obj) (or title "Coverage Report"))
+        (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj))))))
+
 (defun open-coverage-panel (&optional title use-monaco)
   "Send message to browser to open a coverage report panel.
 If USE-MONACO is true, sends JSON data for Monaco display.
 Otherwise, opens the legacy HTML report in an iframe."
   (when *repl-resource*
-    (dolist (client (hunchensocket:clients *repl-resource*))
-      (let ((obj (make-hash-table :test 'equal)))
-        (if use-monaco
-            (let ((json-data (backend-coverage-json)))
+    ;; First, send loading message to show spinner immediately
+    (when use-monaco
+      (send-coverage-loading-message title))
+
+    ;; Generate coverage data (this takes time) - suppress warnings/output
+    (let ((json-data (when use-monaco
+                       (handler-bind ((warning #'muffle-warning))
+                         (let ((*standard-output* (make-broadcast-stream))
+                               (*error-output* (make-broadcast-stream)))
+                           (backend-coverage-json))))))
+      ;; Now send the actual data
+      (dolist (client (hunchensocket:clients *repl-resource*))
+        (let ((obj (make-hash-table :test 'equal)))
+          (if use-monaco
               (if json-data
                   (progn
                     (setf (gethash "type" obj) "open-monaco-coverage")
                     (setf (gethash "data" obj) json-data)
                     (when title
                       (setf (gethash "title" obj) title)))
-                  (progn
-                    (format *error-output* "~&Failed to extract coverage data.~%")
-                    (return-from open-coverage-panel nil))))
-            (progn
-              (setf (gethash "type" obj) "open-coverage")
-              (when title
-                (setf (gethash "title" obj) title))))
-        (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj))))))
+                  (return-from open-coverage-panel nil))
+              (progn
+                (setf (gethash "type" obj) "open-coverage")
+                (when title
+                  (setf (gethash "title" obj) title))))
+          (hunchensocket:send-text-message client (com.inuoe.jzon:stringify obj)))))))

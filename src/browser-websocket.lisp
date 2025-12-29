@@ -387,7 +387,30 @@
                (bt:make-thread
                 (lambda ()
                   (send-hover-doc-response client request-id symbol-name))
-                :name "hover-doc-handler")))))))))
+                :name "hover-doc-handler"))))
+
+          ;; Get coverage file detail (on-demand parsing)
+          ((string= type "get-coverage-file-detail")
+           (browser-log "WS get-coverage-file-detail: hash=~S" (gethash "hash" json))
+           (let ((hash (gethash "hash" json)))
+             (when hash
+               (bt:make-thread
+                (lambda ()
+                  (handler-case
+                      (let ((detail-json (backend-coverage-file-detail hash)))
+                        (browser-log "Got detail-json length: ~A" (if detail-json (length detail-json) "NIL"))
+                        (when detail-json
+                          (hunchensocket:send-text-message
+                           client
+                           (com.inuoe.jzon:stringify
+                            (alexandria:plist-hash-table
+                             (list "type" "coverage-file-detail"
+                                   "hash" hash
+                                   "data" detail-json)
+                             :test 'equal)))))
+                    (error (e)
+                      (browser-log "Coverage file detail error: ~A" e))))
+                :name "coverage-file-detail-handler")))))))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; WebSocket Send Helpers

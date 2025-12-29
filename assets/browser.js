@@ -302,6 +302,9 @@ ws.onmessage = (e) => {
     case 'open-monaco-coverage':
       openMonacoCoveragePanel(msg.title, msg.data);
       break;
+    case 'coverage-loading':
+      openMonacoCoveragePanel(msg.title, null, true);  // loading=true
+      break;
     case 'class-graph':
       handleClassGraph(msg);
       break;
@@ -443,16 +446,40 @@ function openCoveragePanel(title) {
 }
 
 // Open Monaco-style coverage panel with syntax highlighting
-function openMonacoCoveragePanel(title, data) {
-  const panelId = 'monaco-coverage-' + (++coverageCounter);
-  if (dockviewApi) {
-    dockviewApi.addPanel({
-      id: panelId,
-      component: 'monaco-coverage',
-      title: title || 'Coverage Report',
-      params: { data: data },
-      position: { referencePanel: 'terminal', direction: 'right' }
-    });
+let currentCoveragePanelId = null;
+function openMonacoCoveragePanel(title, data, loading = false) {
+  if (loading) {
+    // Create or update panel with loading state
+    const panelId = 'monaco-coverage-' + (++coverageCounter);
+    currentCoveragePanelId = panelId;
+    if (dockviewApi) {
+      dockviewApi.addPanel({
+        id: panelId,
+        component: 'monaco-coverage',
+        title: title || 'Coverage Report',
+        params: { data: null, loading: true },
+        position: { referencePanel: 'terminal', direction: 'right' }
+      });
+    }
+  } else if (currentCoveragePanelId && dockviewApi) {
+    // Update existing panel with data
+    const panel = dockviewApi.getPanel(currentCoveragePanelId);
+    if (panel && panel.api) {
+      panel.api.updateParameters({ data: data, loading: false });
+    }
+    currentCoveragePanelId = null;
+  } else {
+    // Direct open without loading state
+    const panelId = 'monaco-coverage-' + (++coverageCounter);
+    if (dockviewApi) {
+      dockviewApi.addPanel({
+        id: panelId,
+        component: 'monaco-coverage',
+        title: title || 'Coverage Report',
+        params: { data: data },
+        position: { referencePanel: 'terminal', direction: 'right' }
+      });
+    }
   }
 }
 
@@ -2056,6 +2083,19 @@ class MonacoCoveragePanel {
 
   init(params) {
     const data = params.params?.data;
+    const loading = params.params?.loading;
+
+    // Show loading spinner
+    if (loading) {
+      this._element.innerHTML = `
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--fg-secondary);">
+          <div style="width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;"></div>
+          <div style="margin-top:16px;">Generating coverage report...</div>
+          <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+        </div>`;
+      return;
+    }
+
     if (!data) {
       this._element.innerHTML = '<div style="padding:20px;color:var(--fg-secondary);">No coverage data available</div>';
       return;
@@ -2064,33 +2104,96 @@ class MonacoCoveragePanel {
     // Parse JSON if it's a string
     const coverageData = typeof data === 'string' ? JSON.parse(data) : data;
     this._files = coverageData.files || [];
+    this._tempDir = coverageData.tempDir;  // Store for on-demand loading
 
     if (this._files.length === 0) {
       this._element.innerHTML = '<div style="padding:20px;color:var(--fg-secondary);">No files with coverage data</div>';
       return;
     }
 
+    // Set up message handler for file detail responses
+    this._fileDetailHandler = (e) => {
+      if (e.data && typeof e.data === 'string') {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'coverage-file-detail' && msg.data) {
+            const detailData = typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data;
+            // Find the file by hash and update it
+            const file = this._files.find(f => f.hash === msg.hash);
+            if (file) {
+              file.content = detailData.content;
+              file.annotations = detailData.annotations;
+              file.path = detailData.path || file.filename;
+              // Update editor if this is the current file
+              if (this._files[this._currentFileIndex]?.hash === msg.hash) {
+                this._sendContentToEditor();
+              }
+            }
+          }
+        } catch (e) { /* ignore parse errors */ }
+      }
+    };
+    window.addEventListener('message', this._fileDetailHandler);
+
+    // Also listen on WebSocket if available
+    if (ws) {
+      this._wsHandler = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'coverage-file-detail' && msg.data) {
+            const detailData = typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data;
+            const file = this._files.find(f => f.hash === msg.hash);
+            if (file) {
+              file.content = detailData.content;
+              file.annotations = detailData.annotations;
+              file.path = detailData.path || file.filename;
+              if (this._files[this._currentFileIndex]?.hash === msg.hash) {
+                this._sendContentToEditor();
+              }
+            }
+          }
+        } catch (e) { /* ignore */ }
+      };
+      ws.addEventListener('message', this._wsHandler);
+    }
+
     this._render();
+
+    // Request details for the first file
+    this._requestFileDetail(this._files[0]?.hash);
+  }
+
+  _requestFileDetail(hash) {
+    if (!hash || !ws || ws.readyState !== WebSocket.OPEN) return;
+    // Check if we already have content for this file
+    const file = this._files.find(f => f.hash === hash);
+    if (file && file.content) return;  // Already loaded
+    ws.send(JSON.stringify({ type: 'get-coverage-file-detail', hash: hash }));
   }
 
   _render() {
     const file = this._files[this._currentFileIndex];
-    const summary = file.summary || {};
-    const exprPct = summary.exprTotal > 0 ? ((summary.exprCovered / summary.exprTotal) * 100).toFixed(1) : '0.0';
-    const branchPct = summary.branchTotal > 0 ? ((summary.branchCovered / summary.branchTotal) * 100).toFixed(1) : '0.0';
+    // Support both old format (summary object) and new lightweight format (direct properties)
+    const exprCovered = file.exprCovered ?? file.summary?.exprCovered ?? 0;
+    const exprTotal = file.exprTotal ?? file.summary?.exprTotal ?? 0;
+    const branchCovered = file.branchCovered ?? file.summary?.branchCovered ?? 0;
+    const branchTotal = file.branchTotal ?? file.summary?.branchTotal ?? 0;
+    const exprPct = exprTotal > 0 ? ((exprCovered / exprTotal) * 100).toFixed(1) : '0.0';
+    const branchPct = branchTotal > 0 ? ((branchCovered / branchTotal) * 100).toFixed(1) : '0.0';
+    // Support both path (old) and filename (new) formats
+    const filename = file.filename || (file.path ? file.path.split('/').pop() : 'unknown');
 
     // File selector if multiple files
     let fileSelector = '';
     if (this._files.length > 1) {
       fileSelector = '<select id="coverage-file-select" style="margin-left:10px;padding:4px 8px;background:var(--bg-tertiary);color:var(--fg-primary);border:1px solid var(--border);border-radius:4px;">';
       this._files.forEach((f, i) => {
-        const name = f.path.split('/').pop();
+        const name = f.filename || (f.path ? f.path.split('/').pop() : 'file');
         const selected = i === this._currentFileIndex ? ' selected' : '';
-        // Calculate coverage percentage for this file
-        const sum = f.summary || {};
-        const total = (sum.exprTotal || 0) + (sum.branchTotal || 0);
-        const covered = (sum.exprCovered || 0) + (sum.branchCovered || 0);
-        const pct = total > 0 ? Math.round((covered / total) * 100) : 0;
+        // Calculate coverage percentage for this file (support both formats)
+        const fExprTotal = f.exprTotal ?? f.summary?.exprTotal ?? 0;
+        const fExprCovered = f.exprCovered ?? f.summary?.exprCovered ?? 0;
+        const pct = fExprTotal > 0 ? Math.round((fExprCovered / fExprTotal) * 100) : 0;
         fileSelector += '<option value="' + i + '"' + selected + '>' + this._escapeHtml(name) + ' (' + pct + '%)</option>';
       });
       fileSelector += '</select>';
@@ -2098,12 +2201,12 @@ class MonacoCoveragePanel {
 
     this._element.innerHTML = `
       <div style="padding:10px 15px;background:var(--bg-secondary);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:15px;flex-shrink:0;">
-        <div id="coverage-filename" style="font-weight:600;color:var(--fg-primary);font-size:13px;">${this._escapeHtml(file.path.split('/').pop())}</div>
+        <div id="coverage-filename" style="font-weight:600;color:var(--fg-primary);font-size:13px;">${this._escapeHtml(filename)}</div>
         ${fileSelector}
         <div style="flex:1;"></div>
         <div id="coverage-summary" style="display:flex;gap:15px;font-size:12px;">
-          <span style="color:var(--fg-secondary);">Expressions: <span style="color:${exprPct === '100.0' ? '#3fb950' : exprPct === '0.0' ? '#f85149' : '#d29922'}">${summary.exprCovered}/${summary.exprTotal} (${exprPct}%)</span></span>
-          <span style="color:var(--fg-secondary);">Branches: <span style="color:${branchPct === '100.0' ? '#3fb950' : branchPct === '0.0' ? '#f85149' : '#d29922'}">${summary.branchCovered}/${summary.branchTotal} (${branchPct}%)</span></span>
+          <span style="color:var(--fg-secondary);">Expressions: <span style="color:${exprPct === '100.0' ? '#3fb950' : exprPct === '0.0' ? '#f85149' : '#d29922'}">${exprCovered}/${exprTotal} (${exprPct}%)</span></span>
+          <span style="color:var(--fg-secondary);">Branches: <span style="color:${branchPct === '100.0' ? '#3fb950' : branchPct === '0.0' ? '#f85149' : '#d29922'}">${branchCovered}/${branchTotal} (${branchPct}%)</span></span>
         </div>
       </div>
       <div style="padding:5px 10px;background:var(--bg-tertiary);border-bottom:1px solid var(--border);font-size:11px;color:var(--fg-secondary);flex-shrink:0;">
@@ -2120,8 +2223,17 @@ class MonacoCoveragePanel {
     if (select) {
       select.addEventListener('change', (e) => {
         this._currentFileIndex = parseInt(e.target.value, 10);
+        // Request file details if not already loaded
+        const file = this._files[this._currentFileIndex];
+        if (file && !file.content) {
+          this._requestFileDetail(file.hash);
+        }
         this._updateEditor();
         this._updateSummary();
+        // Focus the Monaco editor
+        if (this._iframe) {
+          this._iframe.focus();
+        }
       });
     }
 
@@ -2173,9 +2285,16 @@ class MonacoCoveragePanel {
     const file = this._files[this._currentFileIndex];
     const isDark = document.body.classList.contains('dark');
 
+    // Check if we have content (old format) or just summary (new lightweight format)
+    const content = file.content || '; Coverage summary for: ' + (file.filename || 'unknown') + '\n' +
+      '; Expression coverage: ' + (file.exprCovered ?? 0) + '/' + (file.exprTotal ?? 0) + '\n' +
+      ';\n' +
+      '; Detailed source view not yet available in lightweight mode.\n' +
+      '; The HTML coverage report is saved in the temp directory.';
+
     this._iframe.contentWindow.postMessage({
       type: 'set-content',
-      content: file.content,
+      content: content,
       theme: isDark ? 'dark' : 'light',
       annotations: file.annotations || []  // Pass raw annotations for precise highlighting
     }, '*');
@@ -2187,22 +2306,26 @@ class MonacoCoveragePanel {
 
   _updateSummary() {
     const file = this._files[this._currentFileIndex];
-    const summary = file.summary || {};
-    const exprPct = summary.exprTotal > 0 ? ((summary.exprCovered / summary.exprTotal) * 100).toFixed(1) : '0.0';
-    const branchPct = summary.branchTotal > 0 ? ((summary.branchCovered / summary.branchTotal) * 100).toFixed(1) : '0.0';
+    // Support both old format (summary object) and new lightweight format (direct properties)
+    const exprCovered = file.exprCovered ?? file.summary?.exprCovered ?? 0;
+    const exprTotal = file.exprTotal ?? file.summary?.exprTotal ?? 0;
+    const branchCovered = file.branchCovered ?? file.summary?.branchCovered ?? 0;
+    const branchTotal = file.branchTotal ?? file.summary?.branchTotal ?? 0;
+    const exprPct = exprTotal > 0 ? ((exprCovered / exprTotal) * 100).toFixed(1) : '0.0';
+    const branchPct = branchTotal > 0 ? ((branchCovered / branchTotal) * 100).toFixed(1) : '0.0';
 
     const summaryEl = this._element.querySelector('#coverage-summary');
     if (summaryEl) {
       summaryEl.innerHTML = `
-        <span style="color:var(--fg-secondary);">Expressions: <span style="color:${exprPct === '100.0' ? '#3fb950' : exprPct === '0.0' ? '#f85149' : '#d29922'}">${summary.exprCovered}/${summary.exprTotal} (${exprPct}%)</span></span>
-        <span style="color:var(--fg-secondary);">Branches: <span style="color:${branchPct === '100.0' ? '#3fb950' : branchPct === '0.0' ? '#f85149' : '#d29922'}">${summary.branchCovered}/${summary.branchTotal} (${branchPct}%)</span></span>
+        <span style="color:var(--fg-secondary);">Expressions: <span style="color:${exprPct === '100.0' ? '#3fb950' : exprPct === '0.0' ? '#f85149' : '#d29922'}">${exprCovered}/${exprTotal} (${exprPct}%)</span></span>
+        <span style="color:var(--fg-secondary);">Branches: <span style="color:${branchPct === '100.0' ? '#3fb950' : branchPct === '0.0' ? '#f85149' : '#d29922'}">${branchCovered}/${branchTotal} (${branchPct}%)</span></span>
       `;
     }
 
     // Update file name
     const nameEl = this._element.querySelector('#coverage-filename');
     if (nameEl) {
-      nameEl.textContent = file.path.split('/').pop();
+      nameEl.textContent = file.filename || (file.path ? file.path.split('/').pop() : 'unknown');
     }
   }
 
@@ -2246,9 +2369,98 @@ class MonacoCoveragePanel {
       .replace(/"/g, '&quot;');
   }
 
+  update(params) {
+    // Called by dockview when panel parameters are updated (e.g., loading -> data ready)
+    const data = params.params?.data;
+    const loading = params.params?.loading;
+
+    if (loading) {
+      // Still loading, show spinner
+      this._element.innerHTML = `
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--fg-secondary);">
+          <div style="width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;"></div>
+          <div style="margin-top:16px;">Generating coverage report...</div>
+          <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+        </div>`;
+      return;
+    }
+
+    if (!data) {
+      this._element.innerHTML = '<div style="padding:20px;color:var(--fg-secondary);">No coverage data available</div>';
+      return;
+    }
+
+    // Parse JSON if it's a string
+    const coverageData = typeof data === 'string' ? JSON.parse(data) : data;
+    this._files = coverageData.files || [];
+    this._tempDir = coverageData.tempDir;
+    this._currentFileIndex = 0;
+
+    if (this._files.length === 0) {
+      this._element.innerHTML = '<div style="padding:20px;color:var(--fg-secondary);">No files with coverage data</div>';
+      return;
+    }
+
+    // Set up message handlers if not already set
+    if (!this._fileDetailHandler) {
+      this._fileDetailHandler = (e) => {
+        if (e.data && typeof e.data === 'string') {
+          try {
+            const msg = JSON.parse(e.data);
+            if (msg.type === 'coverage-file-detail' && msg.data) {
+              const detailData = typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data;
+              const file = this._files.find(f => f.hash === msg.hash);
+              if (file) {
+                file.content = detailData.content;
+                file.annotations = detailData.annotations;
+                file.path = detailData.path || file.filename;
+                if (this._files[this._currentFileIndex]?.hash === msg.hash) {
+                  this._sendContentToEditor();
+                }
+              }
+            }
+          } catch (e) { /* ignore parse errors */ }
+        }
+      };
+      window.addEventListener('message', this._fileDetailHandler);
+    }
+
+    if (!this._wsHandler && ws) {
+      this._wsHandler = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'coverage-file-detail' && msg.data) {
+            const detailData = typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data;
+            const file = this._files.find(f => f.hash === msg.hash);
+            if (file) {
+              file.content = detailData.content;
+              file.annotations = detailData.annotations;
+              file.path = detailData.path || file.filename;
+              if (this._files[this._currentFileIndex]?.hash === msg.hash) {
+                this._sendContentToEditor();
+              }
+            }
+          }
+        } catch (e) { /* ignore */ }
+      };
+      ws.addEventListener('message', this._wsHandler);
+    }
+
+    this._render();
+
+    // Request details for the first file
+    this._requestFileDetail(this._files[0]?.hash);
+  }
+
   dispose() {
     if (this._messageHandler) {
       window.removeEventListener('message', this._messageHandler);
+    }
+    if (this._fileDetailHandler) {
+      window.removeEventListener('message', this._fileDetailHandler);
+    }
+    if (this._wsHandler && ws) {
+      ws.removeEventListener('message', this._wsHandler);
     }
     if (this._iframe) {
       monacoIframes.delete(this._iframe);

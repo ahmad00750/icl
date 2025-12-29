@@ -1355,15 +1355,11 @@ Example: ,cover-report"
       (progn
         ;; Ensure browser server is running
         (unless *browser-acceptor*
-          (format t "~&Starting browser server...~%")
           (start-browser :open-browser nil))
-        (format t "~&Generating coverage report...~%")
         (if (and *repl-resource*
                  (hunchensocket:clients *repl-resource*))
-            ;; Open Monaco-style panel with syntax highlighting
-            (progn
-              (format t "~&Opening coverage report in panel...~%")
-              (open-coverage-panel "Coverage Report" t))
+            ;; Open Monaco-style panel with syntax highlighting (spinner shown by browser)
+            (open-coverage-panel "Coverage Report" t)
             ;; Fall back to legacy HTML report in browser tab
             (progn
               (backend-coverage-report)  ; Generate HTML report
@@ -1372,7 +1368,7 @@ Example: ,cover-report"
                 (format t "~&Opening coverage report: ~A~%" url)
                 (ignore-errors (uiop:run-program (list "xdg-open" url)))))))
     (error (e)
-      (format *error-output* "~&Error: ~A~%" e))))
+      (format *error-output* "~&Error generating coverage report: ~A~%" e))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Data Visualization

@@ -98,7 +98,15 @@ require(['vs/editor/editor.main'], function() {
           renderLineHighlight: 'none',
           automaticLayout: true,
           fontSize: 13,
-          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', Consolas, monospace"
+          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', Consolas, monospace",
+          tabSize: 2,
+          detectIndentation: false,
+          renderIndentGuides: true,
+          guides: {
+            indentation: true,
+            bracketPairs: true,
+            highlightActiveIndentation: true
+          }
         });
 
         // Add context menu action to send top-level form to REPL
