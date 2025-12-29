@@ -64,10 +64,16 @@
                    ((alexandria:ends-with-subseq ".png" filename) "image/png")
                    ((alexandria:ends-with-subseq ".ico" filename) "image/x-icon")
                    ((alexandria:ends-with-subseq ".txt" filename) "text/plain")
+                   ((alexandria:ends-with-subseq ".ttf" filename) "font/ttf")
+                   ((alexandria:ends-with-subseq ".woff" filename) "font/woff")
+                   ((alexandria:ends-with-subseq ".woff2" filename) "font/woff2")
                    (t "application/octet-stream"))))
          (binary-asset-p ()
            (or (alexandria:ends-with-subseq ".png" filename)
-               (alexandria:ends-with-subseq ".ico" filename))))
+               (alexandria:ends-with-subseq ".ico" filename)
+               (alexandria:ends-with-subseq ".ttf" filename)
+               (alexandria:ends-with-subseq ".woff" filename)
+               (alexandria:ends-with-subseq ".woff2" filename))))
     ;; First try embedded text assets
     (let ((embedded (get-embedded-asset filename)))
       (when embedded
