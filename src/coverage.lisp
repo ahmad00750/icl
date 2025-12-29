@@ -156,11 +156,13 @@ Uses stored position data when available to avoid reader macro issues."
                (t nil))))
 
     ;; Refresh coverage info
-    (funcall (find-symbol \"REFRESH-COVERAGE-BITS\" \"SB-COVER\"))
+    (let ((refresh-fn (find-symbol \"REFRESH-COVERAGE-BITS\" \"SB-COVER\")))
+      (when refresh-fn (funcall refresh-fn)))
 
     (let* ((ht (sb-cover::code-coverage-hashtable))
            (files-data nil)
            (file-count 0)
+           (skipped-no-positions 0)
            (max-files 30)
            (max-file-size 200000))
 
@@ -176,6 +178,8 @@ Uses stored position data when available to avoid reader macro issues."
                           (locations (and loc-accessor (funcall loc-accessor file-info)))
                           (linelengths (and lines-accessor (funcall lines-accessor file-info))))
                      ;; Only process if stored positions are available
+                     (unless (and locations linelengths)
+                       (incf skipped-no-positions))
                      (when (and locations linelengths)
                        (incf file-count)
                        (multiple-value-bind (counts states)
@@ -237,7 +241,10 @@ Uses stored position data when available to avoid reader macro issues."
                  (error () nil))))))
        ht)
 
-      files-data)))
+      ;; Return files-data, or error info if no files processed
+      (if files-data
+          files-data
+          (format nil \"(:error . \\\"No files with stored positions. Skipped ~D files. Try recompiling with recent SBCL.\\\")\" skipped-no-positions)))))
   (error (e) (format nil \"(:error . ~S)\" (princ-to-string e))))")
          (raw-result (backend-eval-internal extract-code))
          (result-string (first raw-result))
