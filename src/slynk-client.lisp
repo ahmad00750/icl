@@ -565,14 +565,6 @@ Returns (values output-string value-strings). Does not print to the local REPL."
    `(cl:funcall (cl:read-from-string "slynk:slynk-macroexpand-all") ,form)
    *slynk-connection*))
 
-(defun slynk-who-calls (name)
-  "Find all functions that call NAME."
-  (unless *slynk-connected-p*
-    (error "Not connected to backend server"))
-  (slynk-client:slime-eval
-   `(cl:funcall (cl:read-from-string "slynk-backend:who-calls") ',name)
-   *slynk-connection*))
-
 (defun slynk-who-references (name)
   "Find all code that references variable NAME."
   (unless *slynk-connected-p*

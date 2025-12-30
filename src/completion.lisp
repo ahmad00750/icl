@@ -38,10 +38,6 @@
   "Return T if completion menu is currently active."
   (completion-menu-active *completion-menu*))
 
-(defun completion-menu-count ()
-  "Return number of candidates in menu."
-  (length (completion-menu-candidates *completion-menu*)))
-
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Completion Menu Navigation
 ;;; ─────────────────────────────────────────────────────────────────────────────
@@ -679,23 +675,6 @@
                  (values new-line (+ start (length common)) candidates))
                ;; Show candidates, no extension possible
                (values line col candidates))))))))
-
-(defun cycle-completion (line col direction)
-  "Cycle through completions in DIRECTION (:next or :prev).
-   Returns (values new-text new-col) or nil if no completions active."
-  (when (and *completion-candidates*
-             (plusp (length *completion-candidates*)))
-    (let* ((len (length *completion-candidates*))
-           (new-index (mod (+ *completion-index*
-                              (if (eql direction :next) 1 -1))
-                           len))
-           (completion (nth new-index *completion-candidates*)))
-      (setf *completion-index* new-index)
-      (let ((new-line (concatenate 'string
-                                   (subseq line 0 *completion-start*)
-                                   completion
-                                   (subseq line col))))
-        (values new-line (+ *completion-start* (length completion)))))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Dropdown Menu Interface

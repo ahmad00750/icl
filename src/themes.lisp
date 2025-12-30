@@ -153,37 +153,8 @@
   "User override for terminal dark mode detection.
    Set to T for dark, NIL for light, or :auto for auto-detection.")
 
-(defun query-terminal-background ()
-  "Try to query the terminal's background color using OSC 11.
-   Returns :dark, :light, or NIL if unable to detect."
-  (ignore-errors
-    (with-raw-mode
-      ;; Send OSC 11 query: request background color
-      (format t "~C]11;?~C\\" #\Escape #\Escape)
-      (force-output)
-      ;; Give terminal time to respond
-      (sleep 0.05)
-      ;; Try to read response (format: ESC ] 11 ; rgb:RRRR/GGGG/BBBB ESC \)
-      (when (listen)
-        (let ((response (make-string-output-stream)))
-          (loop for i from 0 below 50
-                while (listen)
-                do (write-char (read-char) response))
-          (let ((str (get-output-stream-string response)))
-            ;; Parse rgb:RRRR/GGGG/BBBB format
-            (when (search "rgb:" str)
-              (let* ((rgb-start (+ 4 (search "rgb:" str)))
-                     (rgb-part (subseq str rgb-start (min (+ rgb-start 20) (length str))))
-                     (parts (uiop:split-string rgb-part :separator "/")))
-                (when (>= (length parts) 3)
-                  ;; Get first 2 hex digits of each component (0-255 range)
-                  (let ((r (ignore-errors (parse-integer (subseq (first parts) 0 2) :radix 16)))
-                        (g (ignore-errors (parse-integer (subseq (second parts) 0 2) :radix 16)))
-                        (b (ignore-errors (parse-integer (subseq (third parts) 0 2) :radix 16))))
-                    (when (and r g b)
-                      ;; Calculate luminance: dark if < 128
-                      (let ((luminance (/ (+ (* 0.299 r) (* 0.587 g) (* 0.114 b)) 1.0)))
-                        (if (< luminance 128) :dark :light)))))))))))))
+;; query-terminal-background is defined in terminal-posix.lisp or terminal-windows.lisp
+;; Platform-specific implementation handles raw terminal I/O correctly
 
 (defun detect-terminal-dark-mode ()
   "Detect if the terminal prefers dark mode.

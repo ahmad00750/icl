@@ -38,13 +38,6 @@
 ;;; Input Reading
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun read-input ()
-  "Read input from user using appropriate backend.
-   Returns input string or NIL on EOF."
-  (case (select-input-backend)
-    (:multiline (read-with-multiline-editor))
-    (otherwise (read-simple))))
-
 (defun read-simple ()
   "Simple fallback input for dumb terminals."
   (format t "~A" (make-prompt))

@@ -80,10 +80,6 @@
       (return-from find-available-lisp impl)))
   nil)
 
-(defun list-available-lisps ()
-  "Return list of available Lisp implementations."
-  (remove-if-not #'lisp-available-p *lisp-implementation-order*))
-
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Slynk Loader Generation
 ;;; ─────────────────────────────────────────────────────────────────────────────
@@ -601,11 +597,6 @@
 Returns two values: output-string and list of result strings."
   (ensure-backend)
   (slynk-eval-form-capturing string))
-
-(defun backend-complete (prefix package)
-  "Get completions for PREFIX in PACKAGE using Slynk backend."
-  (ensure-backend)
-  (slynk-complete-simple prefix :package package))
 
 (defun backend-documentation (name type)
   "Get documentation for NAME of TYPE using Slynk backend."

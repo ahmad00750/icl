@@ -40,11 +40,6 @@
       (browser-log "browser-query: ERROR ~A" e)
       nil)))
 
-(defun get-all-packages ()
-  "Get list of all package names from the backend."
-  (browser-query
-   "(sort (mapcar #'package-name (list-all-packages)) #'string<)"))
-
 (defun get-package-symbols (package-name)
   "Get all symbols from PACKAGE-NAME.
    Returns alist of (name . type)."

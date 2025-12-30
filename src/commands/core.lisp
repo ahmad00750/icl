@@ -306,104 +306,6 @@ Example: ,macroexpand-all (when t (unless nil 1))"
     (error (e)
       (format *error-output* "~&Error: ~A~%" e))))
 
-(defun parse-symbol-arg (string)
-  "Parse STRING as a symbol reference. Returns the symbol or NIL."
-  (let* ((str (string-trim '(#\Space #\Tab #\' #\") string))
-         ;; Handle package:symbol or package::symbol
-         (colon-pos (position #\: str))
-         (double-colon (search "::" str)))
-    (handler-case
-        (cond
-          ;; package::symbol (internal)
-          (double-colon
-           (let ((pkg-name (subseq str 0 double-colon))
-                 (sym-name (subseq str (+ double-colon 2))))
-             (let ((pkg (find-package (string-upcase pkg-name))))
-               (when pkg
-                 (find-symbol (string-upcase sym-name) pkg)))))
-          ;; package:symbol (external)
-          (colon-pos
-           (let ((pkg-name (subseq str 0 colon-pos))
-                 (sym-name (subseq str (1+ colon-pos))))
-             (let ((pkg (find-package (string-upcase pkg-name))))
-               (when pkg
-                 (find-symbol (string-upcase sym-name) pkg)))))
-          ;; Unqualified symbol - search current package then CL
-          (t
-           (let ((upcased (string-upcase str)))
-             (or (find-symbol upcased *icl-package*)
-                 (find-symbol upcased :cl)))))
-      (error () nil))))
-
-(defun show-documentation (sym)
-  "Display documentation for symbol SYM."
-  (let ((found nil))
-    ;; Function documentation
-    (when (fboundp sym)
-      (setf found t)
-      (let ((doc (documentation sym 'function))
-            (arglist (get-arglist sym)))
-        (format t "~&~A~A is a ~A~%"
-                (if (symbol-package sym)
-                    (format nil "~A:" (package-name (symbol-package sym)))
-                    "")
-                (string-downcase (symbol-name sym))
-                (cond
-                  ((special-operator-p sym) "special operator")
-                  ((macro-function sym) "macro")
-                  (t "function")))
-        (when arglist
-          (format t "  Arguments: ~{~A~^ ~}~%"
-                  (mapcar #'string-downcase
-                          (mapcar #'princ-to-string arglist))))
-        (if doc
-            (format t "~%~A~%" doc)
-            (format t "  (no documentation)~%"))))
-    ;; Variable documentation
-    (when (and (boundp sym) (not (fboundp sym)))
-      (setf found t)
-      (let ((doc (documentation sym 'variable)))
-        (format t "~&~A is a ~A~%"
-                (string-downcase (symbol-name sym))
-                (if (constantp sym) "constant" "variable"))
-        (format t "  Value: ~S~%" (symbol-value sym))
-        (if doc
-            (format t "~%~A~%" doc)
-            (format t "  (no documentation)~%"))))
-    ;; Type/class documentation
-    (let ((class (find-class sym nil)))
-      (when class
-        (setf found t)
-        (let ((doc (documentation sym 'type)))
-          (format t "~&~A is a ~A~%"
-                  (string-downcase (symbol-name sym))
-                  (class-name (class-of class)))
-          (if doc
-              (format t "~%~A~%" doc)
-              (format t "  (no documentation)~%")))))
-    ;; Not found as anything
-    (unless found
-      (format t "~&~A has no bindings~%" (string-downcase (symbol-name sym))))))
-
-(defun get-arglist (sym)
-  "Get the argument list for function SYM."
-  #+sbcl (ignore-errors
-           (funcall (find-symbol "FUNCTION-LAMBDA-LIST" :sb-introspect) sym))
-  #-sbcl nil)
-
-(defun macroexpand-all-form (form)
-  "Recursively expand all macros in FORM."
-  #+sbcl (ignore-errors
-           (funcall (find-symbol "MACROEXPAND-ALL" :sb-cltl2) form))
-  #-sbcl (labels ((expand (f)
-                    (if (atom f)
-                        f
-                        (let ((expanded (macroexpand f)))
-                          (if (eq expanded f)
-                              (mapcar #'expand f)
-                              (expand expanded))))))
-           (expand form)))
-
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Arglist
 ;;; ─────────────────────────────────────────────────────────────────────────────
@@ -653,40 +555,6 @@ Shows a dropdown when multiple definitions exist."
                (icl::open-source-panel symbol-name file :line line :content content)
                (format *error-output* "~&File not accessible: ~A~%" file))))))))
 
-(defun format-source-location (location)
-  "Format and print a source location from Slynk."
-  ;; Location formats vary:
-  ;; (label (:location (:file "...") (:position N) ...))
-  ;; (label ((:file "...") (:position N) ...))
-  ;; (label (:error "..."))
-  (when (listp location)
-    (let ((label (first location))
-          (loc-data (second location)))
-      (format t "~&~A:~%" label)
-      (cond
-        ;; (:location (:file ...) (:position ...))
-        ((and (listp loc-data) (eq (first loc-data) :location))
-         (let* ((props (rest loc-data))
-                (file (second (assoc :file props)))
-                (pos (second (assoc :position props))))
-           (when file
-             (format t "  File: ~A~%" file))
-           (when pos
-             (format t "  Position: ~A~%" pos))))
-        ;; ((:file ...) (:position ...)) - direct alist
-        ((and (listp loc-data) (listp (first loc-data)) (eq (first (first loc-data)) :file))
-         (let ((file (second (assoc :file loc-data)))
-               (pos (second (assoc :position loc-data))))
-           (when file
-             (format t "  File: ~A~%" file))
-           (when pos
-             (format t "  Position: ~A~%" pos))))
-        ;; (:error "message")
-        ((and (listp loc-data) (eq (first loc-data) :error))
-         (format t "  ~A~%" (second loc-data)))
-        (t
-         (format t "  ~S~%" loc-data))))))
-
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Cross-Reference (Xref)
 ;;; ─────────────────────────────────────────────────────────────────────────────
@@ -839,34 +707,6 @@ Returns (VALUES file position) or (VALUES NIL NIL)."
        (values file pos)))
     (t
      (values nil nil))))
-
-(defun show-source-location (sym)
-  "Show source location for symbol SYM (local/SBCL)."
-  #+sbcl
-  (let ((sources (ignore-errors
-                   (funcall (find-symbol "FIND-DEFINITION-SOURCES-BY-NAME"
-                                         :sb-introspect)
-                            sym :function))))
-    (if sources
-        (dolist (source sources)
-          (let ((file (ignore-errors
-                        (funcall (find-symbol "DEFINITION-SOURCE-PATHNAME"
-                                              :sb-introspect)
-                                 source)))
-                (form-num (ignore-errors
-                            (funcall (find-symbol "DEFINITION-SOURCE-FORM-NUMBER"
-                                                  :sb-introspect)
-                                     source))))
-            (format t "~&~A~%" (string-downcase (symbol-name sym)))
-            (if file
-                (progn
-                  (format t "  File: ~A~%" file)
-                  (when form-num
-                    (format t "  Form: ~A~%" form-num)))
-                (format t "  (no source file recorded)~%"))))
-        (format *error-output* "~&No source location found for: ~A~%" sym)))
-  #-sbcl
-  (format *error-output* "~&Source location not available on this implementation~%"))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Tracing
@@ -1124,9 +964,13 @@ Example: ,dis mapcar"
                                 (package-name (symbol-package sym))
                                 (symbol-name sym))
                         (symbol-name sym))))
+    ;; Wrap in handler-case to catch errors for undefined/non-function symbols
     (slynk-client:slime-eval
-     `(cl:with-output-to-string (cl:*standard-output*)
-        (cl:disassemble (cl:quote ,(read-from-string full-name))))
+     `(cl:handler-case
+          (cl:with-output-to-string (cl:*standard-output*)
+            (cl:disassemble (cl:quote ,(read-from-string full-name))))
+        (cl:error (cl-user::e)
+          (cl:format cl:nil "Error: ~A" cl-user::e)))
      *slynk-connection*)))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
@@ -1381,46 +1225,6 @@ Example: ,cover-report"
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Data Visualization
 ;;; ─────────────────────────────────────────────────────────────────────────────
-
-(defun split-viz-expressions (input)
-  "Split INPUT into separate expressions for ,viz command.
-   Handles simple tokens and parenthesized expressions."
-  (let ((result nil)
-        (current "")
-        (paren-depth 0)
-        (in-string nil)
-        (escape-next nil))
-    (loop for char across input do
-      (cond
-        (escape-next
-         (setf current (concatenate 'string current (string char)))
-         (setf escape-next nil))
-        ((char= char #\\)
-         (setf current (concatenate 'string current (string char)))
-         (setf escape-next t))
-        ((char= char #\")
-         (setf current (concatenate 'string current (string char)))
-         (setf in-string (not in-string)))
-        (in-string
-         (setf current (concatenate 'string current (string char))))
-        ((char= char #\()
-         (setf current (concatenate 'string current (string char)))
-         (incf paren-depth))
-        ((char= char #\))
-         (setf current (concatenate 'string current (string char)))
-         (decf paren-depth))
-        ((and (member char '(#\Space #\Tab)) (zerop paren-depth))
-         (let ((trimmed (string-trim '(#\Space #\Tab) current)))
-           (when (plusp (length trimmed))
-             (push trimmed result)))
-         (setf current ""))
-        (t
-         (setf current (concatenate 'string current (string char))))))
-    ;; Don't forget the last token
-    (let ((trimmed (string-trim '(#\Space #\Tab) current)))
-      (when (plusp (length trimmed))
-        (push trimmed result)))
-    (nreverse result)))
 
 (define-command viz (&rest expressions)
   "Visualize data in the browser based on its type.
@@ -2136,36 +1940,6 @@ Example: ,theme                    - Show current themes
 
 (defvar *spinner-frames* '("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
   "Braille spinner animation frames.")
-
-(defvar *spinner-running* nil
-  "Flag to control spinner thread.")
-
-(defun start-spinner (message)
-  "Start a spinner with MESSAGE. Returns the spinner thread."
-  (setf *spinner-running* t)
-  (let ((frames *spinner-frames*)
-        (idx 0))
-    (sb-thread:make-thread
-     (lambda ()
-       (loop while *spinner-running* do
-         (format t "~C[2K~A ~A~C[0G"
-                 #\Escape        ; ESC[2K clears line
-                 (nth idx frames)
-                 message
-                 #\Escape)       ; ESC[0G returns to column 0
-         (force-output)
-         (setf idx (mod (1+ idx) (length frames)))
-         (sleep 0.08)))
-     :name "spinner")))
-
-(defun stop-spinner (thread)
-  "Stop the spinner THREAD and clear the line."
-  (setf *spinner-running* nil)
-  (ignore-errors
-    (sb-thread:join-thread thread :timeout 0.5))
-  ;; Clear the spinner line
-  (format t "~C[2K~C[0G" #\Escape #\Escape)
-  (force-output))
 
 (defun setup-gemini-mcp-config ()
   "Create temporary Gemini MCP config for ICL tools. Returns config file path.

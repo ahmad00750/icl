@@ -142,11 +142,6 @@
   "Move cursor to end of current line."
   (setf (edit-buffer-col buf) (buffer-line-length buf)))
 
-(defun buffer-move-to-start (buf)
-  "Move cursor to start of buffer."
-  (setf (edit-buffer-row buf) 0
-        (edit-buffer-col buf) 0))
-
 (defun buffer-move-to-end (buf)
   "Move cursor to end of buffer."
   (setf (edit-buffer-row buf) (1- (buffer-line-count buf)))

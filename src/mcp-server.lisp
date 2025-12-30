@@ -669,11 +669,6 @@ Be thorough - users expect you to leverage this live environment access."
   "Return the base path for MCP endpoints, including the session token."
   (format nil "/mcp/~A" *mcp-session-token*))
 
-(defun mcp-uri-matches-p (uri expected-suffix)
-  "Check if URI matches the expected MCP path with token."
-  (let ((expected (concatenate 'string (mcp-base-path) expected-suffix)))
-    (string= uri expected)))
-
 (defun mcp-http-handler ()
   "Handle HTTP requests for MCP protocol.
    Supports both Streamable HTTP (POST JSON-RPC) and legacy SSE transport (GET for stream)."

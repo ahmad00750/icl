@@ -102,10 +102,6 @@
                 (decf depth))))
     depth))
 
-(defun buffer-balanced-p (buf)
-  "Return T if the buffer has balanced delimiters."
-  (zerop (count-unmatched-delimiters (buffer-contents buf))))
-
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Balanced Insertion
 ;;; ─────────────────────────────────────────────────────────────────────────────

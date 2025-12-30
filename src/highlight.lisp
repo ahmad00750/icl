@@ -370,13 +370,6 @@
         (return-from position-in-string-or-comment-p t))))
   nil)
 
-(defun char-at-cursor-is-paren-p (string cursor-pos)
-  "Return T if the character at CURSOR-POS is a paren."
-  (and cursor-pos
-       (>= cursor-pos 0)
-       (< cursor-pos (length string))
-       (member (char string cursor-pos) '(#\( #\)))))
-
 (defun find-paren-at-or-before-cursor (string cursor-pos)
   "Find a paren at cursor or immediately before it.
    Returns the position of the paren to match, or NIL."

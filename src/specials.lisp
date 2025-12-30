@@ -114,12 +114,6 @@
   (bt:with-lock-held (*active-repl-output-lock*)
     (setf *active-repl-output* stream)))
 
-(defun clear-active-repl-output-if (stream)
-  "Clear active output stream if it matches STREAM."
-  (bt:with-lock-held (*active-repl-output-lock*)
-    (when (eq *active-repl-output* stream)
-      (setf *active-repl-output* nil))))
-
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Session Management
 ;;; ─────────────────────────────────────────────────────────────────────────────

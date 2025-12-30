@@ -248,13 +248,6 @@ STACKS is a list of (stack-list . count) pairs."
                       "name" profile-name)
                 :test 'equal))))))))
 
-(defun folded-to-speedscope (folded-string &key (profile-name "Lisp Profile") (unit "none") (weight-scale 1.0d0))
-  "Convert folded stack format to Speedscope JSON string."
-  (stacks-to-speedscope (parse-folded-stacks folded-string)
-                        :profile-name profile-name
-                        :unit unit
-                        :weight-scale weight-scale))
-
 ;;; Profile storage and retrieval
 
 (defun store-profile (json-string)
