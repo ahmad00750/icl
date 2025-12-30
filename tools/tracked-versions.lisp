@@ -16,10 +16,10 @@
      :npm-package "dockview-core"
      :notes "Dockable panel layout manager")
 
-    ;; xterm.js - terminal emulator
+    ;; xterm.js - terminal emulator (migrated to scoped @xterm/xterm)
     (:name "xterm.js"
-     :current-version "5.3.0"
-     :npm-package "xterm"
+     :current-version "6.0.0"
+     :npm-package "@xterm/xterm"
      :notes "Terminal emulator for browser")
 
     ;; xterm-addon-fit - terminal sizing

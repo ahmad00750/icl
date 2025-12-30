@@ -953,22 +953,34 @@ Example: ,dis mapcar"
       (format *error-output* "~&Error: ~A~%" e))))
 
 (defun slynk-disassemble (name)
-  "Disassemble function NAME via Slynk."
+  "Disassemble function NAME via Slynk.
+Accepts both symbol names (foo) and function designators (#'foo)."
   (unless *slynk-connected-p*
     (error "Not connected to Slynk server"))
-  ;; Read symbol in user's current package context
-  (let* ((sym (let ((*package* (or *icl-package* *package*)))
-                (read-from-string (string-upcase name))))
-         (full-name (if (symbol-package sym)
-                        (format nil "~A::~A"
-                                (package-name (symbol-package sym))
-                                (symbol-name sym))
-                        (symbol-name sym))))
+  ;; Read the form in user's current package context
+  (let* ((form (let ((*package* (or *icl-package* *package*)))
+                 (read-from-string (string-upcase name))))
+         ;; Build the disassemble form based on input type
+         (disasm-arg
+           (cond
+             ;; Function designator like #'foo - use directly
+             ((and (listp form) (eq (first form) 'function))
+              form)
+             ;; Symbol - quote it and resolve package
+             ((symbolp form)
+              (let ((full-name (if (symbol-package form)
+                                   (format nil "~A::~A"
+                                           (package-name (symbol-package form))
+                                           (symbol-name form))
+                                   (symbol-name form))))
+                `(cl:quote ,(read-from-string full-name))))
+             ;; Lambda or other form - use directly
+             (t form))))
     ;; Wrap in handler-case to catch errors for undefined/non-function symbols
     (slynk-client:slime-eval
      `(cl:handler-case
           (cl:with-output-to-string (cl:*standard-output*)
-            (cl:disassemble (cl:quote ,(read-from-string full-name))))
+            (cl:disassemble ,disasm-arg))
         (cl:error (cl-user::e)
           (cl:format cl:nil "Error: ~A" cl-user::e)))
      *slynk-connection*)))
