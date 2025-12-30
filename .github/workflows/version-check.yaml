@@ -29,10 +29,11 @@ jobs:
 
       - name: Install ocicl
         run: |
-          curl -L -O https://github.com/ocicl/ocicl/releases/latest/download/ocicl-linux-x86_64.tar.gz
-          tar xzf ocicl-linux-x86_64.tar.gz
-          sudo mv ocicl /usr/local/bin/
+          gh release download --repo ocicl/ocicl --pattern '*.deb'
+          sudo dpkg -i ocicl_*_amd64.deb
           ocicl setup
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Quicklisp
         run: |
